@@ -26,7 +26,10 @@ function renderActions() {
   const hasTranscript = ui.store.project.transcript.tokens.length > 0;
   $('captionUndo').disabled = !ui.store.canUndo(); $('captionRedo').disabled = !ui.store.canRedo();
   $('captionVariation').disabled = !hasTranscript; $('captionSave').disabled = !(hasTranscript || sourceVideo() || ui.store.project.settings.videoEdit);
-  $('captionExport').disabled = $('captionExportPanel').disabled = ui.exportAbort ? false : !sourceVideo();
+  // The SRT file needs captions but no video and no encoder, so the dialog opens for either.
+  const hasCaptions = ui.store.project.segments.length > 0;
+  $('captionExportPanel').disabled = ui.exportAbort ? false : !sourceVideo();
+  $('captionExport').disabled = $('captionExportPanel').disabled && !hasCaptions; $('captionExportSrt').disabled = !hasCaptions;
   $('captionExportQuality').disabled = !!ui.exportAbort;
   $('captionExportPanel').textContent = ui.exportAbort ? 'キャンセル' : '書き出しを開始';
   const out = J.videoOutputSize ? J.videoOutputSize(ui.store.project) : null;
@@ -89,6 +92,12 @@ async function exportCaptions() {
   } catch (error) { const recovery = J.recoveryForError ? J.recoveryForError(error) : { display: error.message || '書き出しに失敗しました。' };
     const cancelled = error.code === 'MEDIA_EXPORT_CANCELLED', text = cancelled ? '書き出しをキャンセルしました。' : recovery.display; status(text, !cancelled); exportState(text, null, !cancelled); }
   finally { ui.exportAbort = null; ui.exporter = null; $('captionExport').textContent = '書き出し'; renderActions(); }
+}
+/* Captions as an SRT file on the edited timeline (J.subtitleCues). Reads the project only: no command, nothing to undo. */
+async function exportSrt() {
+  const text = J.exportSrt(ui.store.project);
+  if (await J.saveFile(`${projectFileStem()}.srt`, new Blob([text], { type: 'application/x-subrip;charset=utf-8' })) !== 'saved') return;
+  const done = 'SRT ファイルを書き出しました。'; status(done); if (!ui.exportAbort) exportState(done);
 }
 async function importVideo(file, expectedMedia) {
   status(expectedMedia ? '動画を照合しています…' : '動画を読み込んでいます…');
@@ -223,6 +232,7 @@ function bind() {
   try { const saved = localStorage.getItem('jizura.exportQuality'); if (saved && $('captionExportQuality').querySelector(`option[value="${saved}"]`)) $('captionExportQuality').value = saved; } catch (_) { /* storage blocked */ }
   $('captionExportQuality').addEventListener('change', event => { try { localStorage.setItem('jizura.exportQuality', event.target.value); } catch (_) { /* storage blocked */ } });
   $('captionExportPanel').addEventListener('click', () => exportCaptions().catch(error => { status(error.message, true); exportState(error.message, null, true); }));
+  $('captionExportSrt').addEventListener('click', () => exportSrt().catch(error => { const text = J.recoveryForError ? J.recoveryForError(error).display : error.message; status(text, true); if (!ui.exportAbort) exportState(text, null, true); }));
   $('captionNew').addEventListener('click', () => { if (ui.preview) ui.preview.disconnect(); if (ui.media) ui.media.close(); ui.media = null; ui.preview = null; ui.selectedId = null; W.clearWaveform(); setProject(emptyProject()); $('captionProjectName').value = '無題の字幕プロジェクト'; $('captionRelinkNotice').hidden = true; $('captionPreviewEmpty').hidden = false; $('captionMediaName').textContent = '動画未選択'; $('captionPlay').disabled = true; $('captionScrub').disabled = true; status('新しいプロジェクトを作成しました。'); });
   $('captionHelp').addEventListener('click', () => { const dialog = $('captionHelpDlg'); if (dialog.showModal) { if (!dialog.open) dialog.showModal(); } else dialog.setAttribute('open', ''); });
   window.addEventListener('resize', onWorkbenchResize);

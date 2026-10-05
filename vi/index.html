@@ -978,6 +978,9 @@ html[data-product-mode=video-captions] label.file:hover { border-color: var(--am
 
 .caption-export-quality { display: grid; gap: 4px; margin: 12px 0 4px; color: var(--muted); font-size: 11px; }
 .caption-export-quality select { width: 100%; padding: 6px 8px; }
+.caption-export-sidecar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }
+.caption-export-sidecar p { margin: 0; }
+.caption-export-sidecar button { flex: none; }
 .caption-transcribe-field { display: grid; gap: 4px; margin: 12px 0 4px; color: var(--muted); font-size: 11px; }
 .caption-transcribe-field input, .caption-transcribe-field select { width: 100%; box-sizing: border-box; padding: 6px 8px; }
 
@@ -1621,6 +1624,10 @@ html[data-product-mode=video-captions] label.file:hover { border-color: var(--am
       </select>
     </label>
     <p id="captionExportQualityHint" class="terms-sub">CaoChất lượngは元の動画の細部や小さな文字がきれいに残ります。Chất lượngを上げるほどファイルが大きく、Xuất bảnに時間がかかります。</p>
+    <div class="caption-export-sidecar">
+      <p id="captionExportSrtHint" class="terms-sub">字幕だけを SRT ファイルにも書き出せます。時間はカット後の動画に合わせます。</p>
+      <button id="captionExportSrt" type="button" class="small" disabled aria-describedby="captionExportSrtHint">SRT を書き出す</button>
+    </div>
     <progress id="captionExportProgress" class="caption-export-progress" max="1" value="0" hidden aria-label="Xuất bảnの進み具合"></progress>
     <p id="captionExportState" class="caption-export-state" role="status"></p>
     <div class="terms-foot"><button value="close" class="ghost">Đóng</button><button id="captionExportPanel" type="button" class="primary" disabled>Xuất bảnを開始</button></div>
@@ -1668,6 +1675,7 @@ html[data-product-mode=video-captions] label.file:hover { border-color: var(--am
       <li><strong>Phong cáchを選ぶ。</strong>エフェクトは「エフェクト」で自分で選びます（ランダムに決めることもできます）。位置ボックスは動画の上でドラッグして決めます。</li>
       <li><strong>タイムラインで整える。</strong>字幕の境界をドラッグし、トラックを分けて重ねることもできます。</li>
       <li><strong>書き出す。</strong>字幕付き MP4 は、このブラウザの中で作られます。</li>
+      <li><strong>字幕ファイルも使う。</strong>「Xuất bản」の「SRT を書き出す」で、字幕だけを SRT ファイルにLưuできます。</li>
     </ol>
     <h3 id="captionKeysTitle">Phátとタイムラインのキー</h3>
     <div class="caption-keys" aria-labelledby="captionKeysTitle">
@@ -8539,6 +8547,56 @@ J.importSubtitleText = (input, options = {}) => {
 
 J.importSrt = (input, options = {}) => J.importSubtitleText(input, Object.assign({}, options, { format: 'srt' }));
 J.importVtt = (input, options = {}) => J.importSubtitleText(input, Object.assign({}, options, { format: 'vtt' }));
+
+/* ---------- subtitle export ---------- */
+/* One line of cue text: words joined by a space, except between two Japanese / Chinese characters. A blank line would end the cue. */
+const CJK_CHAR = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}　-〿ー＀-￯]/u;
+const cueText = words => {
+  let text = '';
+  for (const word of words.map(word => String(word == null ? '' : word).replace(/\s+/gu, ' ').trim()).filter(Boolean)) {
+    const glued = text && CJK_CHAR.test(Array.from(text).pop()) && CJK_CHAR.test(Array.from(word)[0]);
+    text += (text && !glued ? ' ' : '') + word;
+  }
+  return text;
+};
+
+/* Cues on the edited timeline, the one the exported MP4 plays on. Caption times are source times: each caption is cut to the
+   kept sections and moved by the length removed before it; a caption that lies wholly in removed material is left out.
+   Kept sections play back to back, so the parts of a caption that crosses a cut stay one cue. All tracks, in start order. */
+J.subtitleCues = project => {
+  const tokens = new Map((project.transcript && project.transcript.tokens || []).map(token => [token.id, token]));
+  const kept = J.videoEditSettings ? J.videoEditSettings(project).clips || [] : [];
+  const clips = kept.length ? kept : [{ start: 0, end: Infinity }];
+  const cues = [];
+  (project.segments || []).forEach((segment, order) => {
+    const text = cueText((segment.tokenIds || []).map(id => tokens.get(id)).filter(Boolean).map(token => token.text));
+    if (!text) return;
+    let offset = 0, start = null, end = null;
+    for (const clip of clips) {
+      const from = Math.max(segment.start, clip.start), to = Math.min(segment.end, clip.end);
+      if (to > from) { if (start == null) start = offset + from - clip.start; end = offset + to - clip.start; }
+      offset += clip.end - clip.start;
+    }
+    if (start != null) cues.push({ start, end, text, order });
+  });
+  return cues.sort((a, b) => a.start - b.start || a.order - b.order).map(cue => ({ start: cue.start, end: cue.end, text: cue.text }));
+};
+
+const two = value => String(value).padStart(2, '0');
+const srtTimestamp = ms => `${two(Math.floor(ms / 3600000))}:${two(Math.floor(ms / 60000) % 60)}:${two(Math.floor(ms / 1000) % 60)},${String(ms % 1000).padStart(3, '0')}`;
+
+J.exportSubtitleText = (project, options = {}) => {
+  const format = String(options.format || '').toLowerCase();
+  if (format !== 'srt') fail('SUBTITLE_FORMAT_REQUIRED', 'Subtitle export format must be explicitly set to "srt".');
+  const cues = J.subtitleCues(project);
+  if (!cues.length) fail('SUBTITLE_EXPORT_EMPTY', 'There are no captions in the exported part of the video.');
+  // Times are rounded only here; a cue shorter than a millisecond still gets one.
+  return cues.map((cue, index) => {
+    const start = Math.max(0, Math.round(cue.start * 1000)), end = Math.max(start + 1, Math.round(cue.end * 1000));
+    return `${index + 1}\n${srtTimestamp(start)} --> ${srtTimestamp(end)}\n${cue.text}\n`;
+  }).join('\n');
+};
+J.exportSrt = project => J.exportSubtitleText(project, { format: 'srt' });
 })();
 
 /* Non-destructive video edits. All times refer to the original source. */
@@ -9272,6 +9330,7 @@ const RECOVERY = Object.freeze({
   TOKEN_END_AFTER_DURATION: 'Keep word timings within the source-video duration.',
   SUBTITLE_CUE_TIMING_INVALID: 'Correct invalid or overlapping SRT/VTT cue times and import it again.',
   ESTIMATED_TIMING_REQUIRED: 'Mark SRT/VTT-derived tokens as estimated, or import word-timestamp JSON.',
+  SUBTITLE_EXPORT_EMPTY: 'Add captions, or check that the kept sections of the video include some.',
   TRANSCRIPT_TIMING_INVALID: 'Correct overlapping or negative transcript timings, then import the file again.',
   TIMED_TEXT_WORD_TIMING_REQUIRED: 'Import word-timestamp JSON for precise active-word captions. SRT/VTT timing remains estimated.',
   TRANSCRIBE_KEY_REQUIRED: 'Paste your Gemini API key from Google AI Studio.',
@@ -47572,7 +47631,10 @@ function renderActions() {
   const hasTranscript = ui.store.project.transcript.tokens.length > 0;
   $('captionUndo').disabled = !ui.store.canUndo(); $('captionRedo').disabled = !ui.store.canRedo();
   $('captionVariation').disabled = !hasTranscript; $('captionSave').disabled = !(hasTranscript || sourceVideo() || ui.store.project.settings.videoEdit);
-  $('captionExport').disabled = $('captionExportPanel').disabled = ui.exportAbort ? false : !sourceVideo();
+  // The SRT file needs captions but no video and no encoder, so the dialog opens for either.
+  const hasCaptions = ui.store.project.segments.length > 0;
+  $('captionExportPanel').disabled = ui.exportAbort ? false : !sourceVideo();
+  $('captionExport').disabled = $('captionExportPanel').disabled && !hasCaptions; $('captionExportSrt').disabled = !hasCaptions;
   $('captionExportQuality').disabled = !!ui.exportAbort;
   $('captionExportPanel').textContent = ui.exportAbort ? 'キャンセル' : '書き出しを開始';
   const out = J.videoOutputSize ? J.videoOutputSize(ui.store.project) : null;
@@ -47635,6 +47697,12 @@ async function exportCaptions() {
   } catch (error) { const recovery = J.recoveryForError ? J.recoveryForError(error) : { display: error.message || '書き出しに失敗しました。' };
     const cancelled = error.code === 'MEDIA_EXPORT_CANCELLED', text = cancelled ? '書き出しをキャンセルしました。' : recovery.display; status(text, !cancelled); exportState(text, null, !cancelled); }
   finally { ui.exportAbort = null; ui.exporter = null; $('captionExport').textContent = '書き出し'; renderActions(); }
+}
+/* Captions as an SRT file on the edited timeline (J.subtitleCues). Reads the project only: no command, nothing to undo. */
+async function exportSrt() {
+  const text = J.exportSrt(ui.store.project);
+  if (await J.saveFile(`${projectFileStem()}.srt`, new Blob([text], { type: 'application/x-subrip;charset=utf-8' })) !== 'saved') return;
+  const done = 'SRT ファイルを書き出しました。'; status(done); if (!ui.exportAbort) exportState(done);
 }
 async function importVideo(file, expectedMedia) {
   status(expectedMedia ? '動画を照合しています…' : '動画を読み込んでいます…');
@@ -47769,6 +47837,7 @@ function bind() {
   try { const saved = localStorage.getItem('jizura.exportQuality'); if (saved && $('captionExportQuality').querySelector(`option[value="${saved}"]`)) $('captionExportQuality').value = saved; } catch (_) { /* storage blocked */ }
   $('captionExportQuality').addEventListener('change', event => { try { localStorage.setItem('jizura.exportQuality', event.target.value); } catch (_) { /* storage blocked */ } });
   $('captionExportPanel').addEventListener('click', () => exportCaptions().catch(error => { status(error.message, true); exportState(error.message, null, true); }));
+  $('captionExportSrt').addEventListener('click', () => exportSrt().catch(error => { const text = J.recoveryForError ? J.recoveryForError(error).display : error.message; status(text, true); if (!ui.exportAbort) exportState(text, null, true); }));
   $('captionNew').addEventListener('click', () => { if (ui.preview) ui.preview.disconnect(); if (ui.media) ui.media.close(); ui.media = null; ui.preview = null; ui.selectedId = null; W.clearWaveform(); setProject(emptyProject()); $('captionProjectName').value = '無題の字幕プロジェクト'; $('captionRelinkNotice').hidden = true; $('captionPreviewEmpty').hidden = false; $('captionMediaName').textContent = '動画未選択'; $('captionPlay').disabled = true; $('captionScrub').disabled = true; status('新しいプロジェクトを作成しました。'); });
   $('captionHelp').addEventListener('click', () => { const dialog = $('captionHelpDlg'); if (dialog.showModal) { if (!dialog.open) dialog.showModal(); } else dialog.setAttribute('open', ''); });
   window.addEventListener('resize', onWorkbenchResize);

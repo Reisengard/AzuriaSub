@@ -30,6 +30,7 @@ const RECOVERY = Object.freeze({
   TOKEN_END_AFTER_DURATION: 'Keep word timings within the source-video duration.',
   SUBTITLE_CUE_TIMING_INVALID: 'Correct invalid or overlapping SRT/VTT cue times and import it again.',
   ESTIMATED_TIMING_REQUIRED: 'Mark SRT/VTT-derived tokens as estimated, or import word-timestamp JSON.',
+  SUBTITLE_EXPORT_EMPTY: 'Add captions, or check that the kept sections of the video include some.',
   TRANSCRIPT_TIMING_INVALID: 'Correct overlapping or negative transcript timings, then import the file again.',
   TIMED_TEXT_WORD_TIMING_REQUIRED: 'Import word-timestamp JSON for precise active-word captions. SRT/VTT timing remains estimated.',
   TRANSCRIBE_KEY_REQUIRED: 'Paste your Gemini API key from Google AI Studio.',

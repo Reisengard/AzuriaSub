@@ -68,7 +68,7 @@ Checked against the code at the baseline.
 - Export time is source time. Captions are drawn at `sourceTimes[i]`; kept sections come from `settings.videoEdit.clips`.
 - `J.validateVideoEdits` rejects more than 100 clips, 100 panels or 100 notes.
 - `dev/export_chrome_check.js` reaches the store through the workbench UI (`J.captionWorkbench`, file inputs). There is no public automation entry point.
-- Subtitle export on the edited timeline does not exist.
+- Subtitle export on the edited timeline exists for SRT only: `J.subtitleCues` and `J.exportSrt` in `src/10_timed_text.js`, used by the export dialog. There is no VTT writer, no source-timeline file and no output bundle yet.
 - Files in `src/` are concatenated in sorted order into every public edition, so the facade ships to the website too. It must do nothing until it is called.
 - `ffmpeg` and `ffprobe` are already required by the export check and can be reused for audio extraction and output validation.
 
@@ -253,7 +253,7 @@ The facade uses the workbench's store and media controller rather than a second 
 
 **Depends on:** S08.
 
-**Work:** SRT and VTT writers using the rule in section 4, for both the source timeline and the edited timeline, with the timeline named in the file name. `export_project` now produces, for one revision: the MP4, the edited-timeline SRT and VTT, the project JSON, and a manifest (duration, size, codec, revision, checksums).
+**Work:** SRT and VTT writers using the rule in section 4, for both the source timeline and the edited timeline, with the timeline named in the file name. Build on the existing `J.subtitleCues` / `J.exportSubtitleText` (edited timeline, SRT) instead of writing a second one. That writer keeps a caption that crosses a cut as one cue, because its kept parts play back to back on the edited timeline. `export_project` now produces, for one revision: the MP4, the edited-timeline SRT and VTT, the project JSON, and a manifest (duration, size, codec, revision, checksums).
 
 **Acceptance (M2):** a cue crossing one or several cuts is split correctly; removed text never appears; no cue ends after the video; accents and line breaks survive; the files pass an independent parser and play in sync with the MP4 in a player. In the local client, "transcribe this, remove long pauses, caption it, export" works end to end.
 

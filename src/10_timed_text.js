@@ -175,4 +175,54 @@ J.importSubtitleText = (input, options = {}) => {
 
 J.importSrt = (input, options = {}) => J.importSubtitleText(input, Object.assign({}, options, { format: 'srt' }));
 J.importVtt = (input, options = {}) => J.importSubtitleText(input, Object.assign({}, options, { format: 'vtt' }));
+
+/* ---------- subtitle export ---------- */
+/* One line of cue text: words joined by a space, except between two Japanese / Chinese characters. A blank line would end the cue. */
+const CJK_CHAR = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}　-〿ー＀-￯]/u;
+const cueText = words => {
+  let text = '';
+  for (const word of words.map(word => String(word == null ? '' : word).replace(/\s+/gu, ' ').trim()).filter(Boolean)) {
+    const glued = text && CJK_CHAR.test(Array.from(text).pop()) && CJK_CHAR.test(Array.from(word)[0]);
+    text += (text && !glued ? ' ' : '') + word;
+  }
+  return text;
+};
+
+/* Cues on the edited timeline, the one the exported MP4 plays on. Caption times are source times: each caption is cut to the
+   kept sections and moved by the length removed before it; a caption that lies wholly in removed material is left out.
+   Kept sections play back to back, so the parts of a caption that crosses a cut stay one cue. All tracks, in start order. */
+J.subtitleCues = project => {
+  const tokens = new Map((project.transcript && project.transcript.tokens || []).map(token => [token.id, token]));
+  const kept = J.videoEditSettings ? J.videoEditSettings(project).clips || [] : [];
+  const clips = kept.length ? kept : [{ start: 0, end: Infinity }];
+  const cues = [];
+  (project.segments || []).forEach((segment, order) => {
+    const text = cueText((segment.tokenIds || []).map(id => tokens.get(id)).filter(Boolean).map(token => token.text));
+    if (!text) return;
+    let offset = 0, start = null, end = null;
+    for (const clip of clips) {
+      const from = Math.max(segment.start, clip.start), to = Math.min(segment.end, clip.end);
+      if (to > from) { if (start == null) start = offset + from - clip.start; end = offset + to - clip.start; }
+      offset += clip.end - clip.start;
+    }
+    if (start != null) cues.push({ start, end, text, order });
+  });
+  return cues.sort((a, b) => a.start - b.start || a.order - b.order).map(cue => ({ start: cue.start, end: cue.end, text: cue.text }));
+};
+
+const two = value => String(value).padStart(2, '0');
+const srtTimestamp = ms => `${two(Math.floor(ms / 3600000))}:${two(Math.floor(ms / 60000) % 60)}:${two(Math.floor(ms / 1000) % 60)},${String(ms % 1000).padStart(3, '0')}`;
+
+J.exportSubtitleText = (project, options = {}) => {
+  const format = String(options.format || '').toLowerCase();
+  if (format !== 'srt') fail('SUBTITLE_FORMAT_REQUIRED', 'Subtitle export format must be explicitly set to "srt".');
+  const cues = J.subtitleCues(project);
+  if (!cues.length) fail('SUBTITLE_EXPORT_EMPTY', 'There are no captions in the exported part of the video.');
+  // Times are rounded only here; a cue shorter than a millisecond still gets one.
+  return cues.map((cue, index) => {
+    const start = Math.max(0, Math.round(cue.start * 1000)), end = Math.max(start + 1, Math.round(cue.end * 1000));
+    return `${index + 1}\n${srtTimestamp(start)} --> ${srtTimestamp(end)}\n${cue.text}\n`;
+  }).join('\n');
+};
+J.exportSrt = project => J.exportSubtitleText(project, { format: 'srt' });
 })();

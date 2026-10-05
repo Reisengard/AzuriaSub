@@ -147,7 +147,7 @@ Small features after step 8:
 - [ ] **UI-4 — Right bar Advanced tabs** (Style / Effects / Techniques / Captions / Export).
 - [ ] **UI-5 — Responsive, i18n, polish, ADR 0008.**
 
-Cheap wins to schedule after step 8 (or earlier if convenient): SRT/VTT export, autosave/crash recovery, quantitative success metrics.
+Cheap wins to schedule after step 8 (or earlier if convenient): SRT/VTT export, autosave/crash recovery, quantitative success metrics. SRT export is done (2026-10-05): "Export .srt file" in the export dialog writes the captions on the edited timeline (`J.exportSrt`); VTT export is still open.
 
 ---
 

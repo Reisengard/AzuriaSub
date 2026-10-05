@@ -624,6 +624,10 @@
       </select>
     </label>
     <p id="captionExportQualityHint" class="terms-sub">高画質は元の動画の細部や小さな文字がきれいに残ります。画質を上げるほどファイルが大きく、書き出しに時間がかかります。</p>
+    <div class="caption-export-sidecar">
+      <p id="captionExportSrtHint" class="terms-sub">字幕だけを SRT ファイルにも書き出せます。時間はカット後の動画に合わせます。</p>
+      <button id="captionExportSrt" type="button" class="small" disabled aria-describedby="captionExportSrtHint">SRT を書き出す</button>
+    </div>
     <progress id="captionExportProgress" class="caption-export-progress" max="1" value="0" hidden aria-label="書き出しの進み具合"></progress>
     <p id="captionExportState" class="caption-export-state" role="status"></p>
     <div class="terms-foot"><button value="close" class="ghost">閉じる</button><button id="captionExportPanel" type="button" class="primary" disabled>書き出しを開始</button></div>
@@ -671,6 +675,7 @@
       <li><strong>スタイルを選ぶ。</strong>エフェクトは「エフェクト」で自分で選びます（ランダムに決めることもできます）。位置ボックスは動画の上でドラッグして決めます。</li>
       <li><strong>タイムラインで整える。</strong>字幕の境界をドラッグし、トラックを分けて重ねることもできます。</li>
       <li><strong>書き出す。</strong>字幕付き MP4 は、このブラウザの中で作られます。</li>
+      <li><strong>字幕ファイルも使う。</strong>「書き出し」の「SRT を書き出す」で、字幕だけを SRT ファイルに保存できます。</li>
     </ol>
     <h3 id="captionKeysTitle">再生とタイムラインのキー</h3>
     <div class="caption-keys" aria-labelledby="captionKeysTitle">
