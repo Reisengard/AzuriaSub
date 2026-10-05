@@ -21,6 +21,7 @@ The product is named **Azuria Sub** (renamed 2026-10-02; code identifiers, stora
 - Run suites individually when checking a change: the chain stops at the first failure.
 - Lyric Motion guard: `node lyric_smoke.js`. Caption visual snapshots: `node caption_visual_regression.js` (`--update` only when a visual change is intended).
 - Export tests use mocks; real H.264 export must be checked in real Chrome.
+- AI transcription (ADR 0011) is tested with canned responses (`node caption_transcribe_test.js`); a real run needs a Gemini API key typed into the app.
 
 ## Rules for this refactor
 - Do one step of the delta plan at a time; each step leaves the app working and tests green.

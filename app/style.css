@@ -955,3 +955,5 @@ html[data-product-mode=video-captions] label.file:hover { border-color: var(--am
 
 .caption-export-quality { display: grid; gap: 4px; margin: 12px 0 4px; color: var(--muted); font-size: 11px; }
 .caption-export-quality select { width: 100%; padding: 6px 8px; }
+.caption-transcribe-field { display: grid; gap: 4px; margin: 12px 0 4px; color: var(--muted); font-size: 11px; }
+.caption-transcribe-field input, .caption-transcribe-field select { width: 100%; box-sizing: border-box; padding: 6px 8px; }

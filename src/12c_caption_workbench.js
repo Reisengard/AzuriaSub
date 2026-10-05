@@ -129,13 +129,66 @@ async function openProject(file) {
   status(needsRelink ? 'プロジェクトを開きました。元の動画を再リンクしてください。' : 'プロジェクトを開きました。');
 }
 
-async function importTranscript(file) {
-  const text = await file.text(), ext = file.name.toLowerCase().split('.').pop(), duration = ui.store.project.media.duration;
-  const transcript = ext === 'srt' ? J.importSrt(text, { timingQuality: 'estimated', duration }) : ext === 'vtt' ? J.importVtt(text, { timingQuality: 'estimated', duration }) : J.importWordJson(text, { duration });
+function applyTranscript(transcript) {
+  const duration = ui.store.project.media.duration;
   const project = clone(ui.store.project); project.transcript = transcript;
   project.segments = J.segmentCaptions(transcript, { duration }).segments;
   const planned = J.planCaptions(project, project.media); project.segments = planned.segments; project.plans = planned.plans; project.updatedAt = new Date().toISOString();
   setProject(project); status(`${project.segments.length}件の字幕を作成しました。`);
+}
+async function importTranscript(file) {
+  const text = await file.text(), ext = file.name.toLowerCase().split('.').pop(), duration = ui.store.project.media.duration;
+  applyTranscript(ext === 'srt' ? J.importSrt(text, { timingQuality: 'estimated', duration }) : ext === 'vtt' ? J.importVtt(text, { timingQuality: 'estimated', duration }) : J.importWordJson(text, { duration }));
+}
+
+/* AI transcription (ADR 0011): the soundtrack goes to the Gemini API with the user's own key, and only when they start it.
+   The result is word JSON and enters through the same path as an imported transcript file. */
+const TRANSCRIBE_KEY = 'jizura.geminiKey', TRANSCRIBE_LANG = 'jizura.transcribeLang';
+const transcribeError = (code, message) => Object.assign(new Error(message), { code });
+function transcribeState(text, isError) { const state = $('captionTranscribeState'); state.textContent = text || ''; state.classList.toggle('error', !!isError); }
+function openTranscribeDialog() {
+  let key = '', lang = null;
+  try { key = localStorage.getItem(TRANSCRIBE_KEY) || ''; lang = localStorage.getItem(TRANSCRIBE_LANG); } catch (_) { /* storage blocked */ }
+  if (!$('captionTranscribeKey').value) $('captionTranscribeKey').value = key;
+  if (lang == null) lang = /^ja/i.test(document.documentElement.lang || '') ? 'ja-JP' : '';
+  if ($('captionTranscribeLang').querySelector(`option[value="${lang}"]`)) $('captionTranscribeLang').value = lang;
+  if (!ui.transcribeAbort) transcribeState(sourceVideo() ? '' : '先に動画を読み込んでください。');
+  const dialog = $('captionTranscribeDlg'); if (dialog.showModal) { if (!dialog.open) dialog.showModal(); } else dialog.setAttribute('open', '');
+}
+/* The soundtrack as 16 kHz mono WAV: small enough to send inline, and all a speech model needs. */
+async function videoAudioWav(file) {
+  const Context = window.AudioContext || window.webkitAudioContext, Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  let context, decoded;
+  try { context = new Context(); decoded = await context.decodeAudioData(await file.arrayBuffer()); }
+  catch (error) { throw transcribeError('TRANSCRIBE_AUDIO_UNREADABLE', 'The audio of this video could not be read.'); }
+  finally { try { context && context.close(); } catch (error) {} }
+  const rate = J.TRANSCRIBE_SAMPLE_RATE, offline = new Offline(1, Math.max(1, Math.ceil(decoded.duration * rate)), rate);
+  const node = offline.createBufferSource(); node.buffer = decoded; node.connect(offline.destination); node.start();
+  return J.encodeWavPcm16((await offline.startRendering()).getChannelData(0), rate);
+}
+async function transcribeVideo() {
+  if (ui.transcribeAbort) { ui.transcribeAbort.abort(); return; }
+  const current = ui.media && ui.media.current; if (!current) { transcribeState('先に動画を読み込んでください。', true); return; }
+  const apiKey = $('captionTranscribeKey').value.trim(), languageCode = $('captionTranscribeLang').value, duration = Number(ui.store.project.media.duration) || 0;
+  if (ui.store.project.segments.length && !window.confirm('今ある字幕はすべて置き換えられます。続けますか？')) return;
+  const abort = ui.transcribeAbort = new AbortController(); $('captionTranscribeStart').textContent = 'キャンセル';
+  try {
+    if (!apiKey) throw transcribeError('TRANSCRIBE_KEY_REQUIRED', 'A Gemini API key is required.');
+    if (duration > J.TRANSCRIBE_MAX_SECONDS) throw transcribeError('TRANSCRIBE_AUDIO_TOO_LONG', 'This video is too long for automatic transcription.');
+    try { localStorage.setItem(TRANSCRIBE_KEY, apiKey); localStorage.setItem(TRANSCRIBE_LANG, languageCode); } catch (_) { /* storage blocked */ }
+    transcribeState('音声を準備しています…');
+    const wav = await videoAudioWav(current.file);
+    if (abort.signal.aborted) throw transcribeError('TRANSCRIBE_CANCELLED', 'Transcription was cancelled.');
+    transcribeState('文字起こし中…（1分ほどかかることがあります）');
+    const words = await J.transcribeAudio(wav, { apiKey, languageCode, language: J.TRANSCRIBE_LANGUAGES[languageCode] || 'und', duration: duration || undefined, signal: abort.signal });
+    if (!ui.media || ui.media.current !== current) throw transcribeError('TRANSCRIBE_CANCELLED', 'Transcription was cancelled.');   // another video was loaded meanwhile
+    applyTranscript(J.importWordJson(words, { duration: duration || undefined, source: 'gemini' }));
+    transcribeState(`${ui.store.project.segments.length}件の字幕を作成しました。`);
+    const dialog = $('captionTranscribeDlg'); if (dialog.close && dialog.open) dialog.close();
+  } catch (error) {
+    const cancelled = error.code === 'TRANSCRIBE_CANCELLED', text = cancelled ? '文字起こしをキャンセルしました。' : J.recoveryForError ? J.recoveryForError(error).display : error.message;
+    transcribeState(text, !cancelled); status(text, !cancelled);
+  } finally { ui.transcribeAbort = null; $('captionTranscribeStart').textContent = '文字起こしを開始'; }
 }
 
 function projectFileStem() { return $('captionProjectName').value.trim().replace(/[\/:*?"<>|]+/g, '-') || `jizura-${ui.store.project.id}`; }
@@ -148,6 +201,10 @@ function bind() {
   $('captionRelinkFile').addEventListener('change', event => { const file = event.target.files[0], expected = clone(ui.store.project.media); if (file) importVideo(file, expected).catch(error => { if (error.code !== 'MEDIA_RELINK_MISMATCH') status(J.recoveryForError ? J.recoveryForError(error).display : error.message, true); }); event.target.value = ''; });
   $('captionProjectFile').addEventListener('change', event => { const file = event.target.files[0]; if (file) openProject(file).catch(error => status(J.recoveryForError ? J.recoveryForError(error).display : error.message, true)); event.target.value = ''; });
   $('captionTranscriptFile').addEventListener('change', event => { const file = event.target.files[0]; if (file) importTranscript(file).catch(error => status(J.recoveryForError ? J.recoveryForError(error).display : error.message, true)); event.target.value = ''; });
+  $('captionTranscribeOpen').addEventListener('click', openTranscribeDialog);
+  $('captionTranscribeStart').addEventListener('click', () => { transcribeVideo(); });
+  $('captionTranscribeKey').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); transcribeVideo(); } });
+  $('captionTranscribeForget').addEventListener('click', () => { try { localStorage.removeItem(TRANSCRIBE_KEY); } catch (_) { /* storage blocked */ } $('captionTranscribeKey').value = ''; transcribeState('保存したキーを消しました。'); });
   $('captionUndo').addEventListener('click', () => { if (ui.store.undo()) emit('project'); }); $('captionRedo').addEventListener('click', () => { if (ui.store.redo()) emit('project'); });
   $('captionVariation').addEventListener('click', () => { if (runCommand({ type: 'randomize-caption-look', variation: ++ui.variation })) status('全体のエフェクトをランダムに決めました。元に戻すで戻せます。'); });
   $('captionSave').addEventListener('click', () => J.saveFile(`${projectFileStem()}.json`, ui.store.serialize()));
@@ -187,7 +244,7 @@ J.CaptionStore.prototype.setTechnique = function (command) {
   }
 };
 
-Object.assign(W, { afterProject, beforeProject, drawCaptions, emptyProject, exportCaptions, exportState, fitPreviewFrame, importTranscript, importVideo, onWorkbenchResize, openExportDialog, openProject, projectId, renderActions, setProject });
+Object.assign(W, { afterProject, beforeProject, drawCaptions, emptyProject, applyTranscript, exportCaptions, exportState, fitPreviewFrame, importTranscript, transcribeVideo, importVideo, onWorkbenchResize, openExportDialog, openProject, projectId, renderActions, setProject });
 on('project', beforeProject, -10); on('project', afterProject, 10);
 
 /* The single-file build places scripts after the complete body. Initializing

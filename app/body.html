@@ -64,6 +64,7 @@
           <p>ローカル動画はブラウザ内だけで扱われます。</p>
           <label class="file">動画を選択<input id="captionVideoFile" type="file" accept="video/*,.mp4,.webm,.mov,.m4v"></label>
           <label class="file">文字起こしを読込<input id="captionTranscriptFile" type="file" accept=".json,.srt,.vtt,application/json,text/vtt"></label>
+          <button id="captionTranscribeOpen" type="button" class="ghost small">AIで文字起こし</button>
         </div>
         <details id="captionScriptEntry" class="caption-manual-entry">
           <summary>台本を貼り付け</summary>
@@ -628,6 +629,30 @@
     <div class="terms-foot"><button value="close" class="ghost">閉じる</button><button id="captionExportPanel" type="button" class="primary" disabled>書き出しを開始</button></div>
   </form>
 </dialog>
+<dialog id="captionTranscribeDlg" class="terms" aria-labelledby="captionTranscribeTitle">
+  <form method="dialog">
+    <h2 id="captionTranscribeTitle">AIで文字起こし</h2>
+    <p>動画の音声を Google の Gemini API に送り、単語ごとのタイミングが付いた字幕を作ります。今ある字幕は置き換えられます。</p>
+    <div class="terms-main"><p><strong>音声が Google に送信されます。</strong>映像は送信されません。無料枠の API キーでは、送信した内容が Google の製品改善に使われることがあります。</p></div>
+    <label class="caption-transcribe-field">Gemini API キー
+      <input id="captionTranscribeKey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…">
+    </label>
+    <p class="terms-sub">キーは <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> で作れます。このブラウザにだけ保存され、プロジェクトファイルには含まれません。 <button id="captionTranscribeForget" type="button" class="ghost small">保存したキーを消す</button></p>
+    <label class="caption-transcribe-field">話されている言語
+      <select id="captionTranscribeLang">
+        <option value="">自動で判定</option>
+        <option value="ja-JP">日本語</option>
+        <option value="en-US">English</option>
+        <option value="ko-KR">한국어</option>
+        <option value="cmn-Hans-CN">中文（普通话）</option>
+        <option value="yue-Hant-HK">中文（粵語）</option>
+      </select>
+    </label>
+    <p class="terms-sub">7分までの動画に対応しています。歌や固有名詞は聞き間違えることがあるので、作成後に字幕を確認してください。</p>
+    <p id="captionTranscribeState" class="caption-export-state" role="status"></p>
+    <div class="terms-foot"><button value="close" class="ghost">閉じる</button><button id="captionTranscribeStart" type="button" class="primary">文字起こしを開始</button></div>
+  </form>
+</dialog>
 <dialog id="captionRestoreDlg" class="terms" aria-labelledby="captionRestoreTitle">
   <form method="dialog">
     <h2 id="captionRestoreTitle">前回の作業を復元しますか？</h2>
@@ -642,7 +667,7 @@
     <h2 id="captionHelpTitle">字幕編集の流れ</h2>
     <ol class="caption-help-steps">
       <li><strong>動画を読み込む。</strong>動画は「動画設定」で、書き出す縦横比（9:16・4:5・1:1・16:9）、トリム、クロップを選びます。</li>
-      <li><strong>文字起こしを入れる。</strong>単語タイムスタンプ JSON、SRT、VTT を読み込むか、台本を貼り付けて「同期」で合わせます。</li>
+      <li><strong>文字起こしを入れる。</strong>「AIで文字起こし」で音声から自動で作るか、単語タイムスタンプ JSON、SRT、VTT を読み込むか、台本を貼り付けて「同期」で合わせます。</li>
       <li><strong>スタイルを選ぶ。</strong>エフェクトは「エフェクト」で自分で選びます（ランダムに決めることもできます）。位置ボックスは動画の上でドラッグして決めます。</li>
       <li><strong>タイムラインで整える。</strong>字幕の境界をドラッグし、トラックを分けて重ねることもできます。</li>
       <li><strong>書き出す。</strong>字幕付き MP4 は、このブラウザの中で作られます。</li>
