@@ -47910,7 +47910,8 @@ function renderActions() {
   $('captionExportPanel').textContent = ui.exportAbort ? 'キャンセル' : '書き出しを開始';
   const out = J.videoOutputSize ? J.videoOutputSize(ui.store.project) : null;
   $('captionExportFormat').textContent = out ? `${out.width} × ${out.height}` : '—';
-  $('captionExportDuration').textContent = fmt(J.videoEditDuration(J.videoClips(ui.store.project)));
+  const length = J.videoEditDuration(J.videoClips(ui.store.project));
+  $('captionExportDuration').textContent = Number.isFinite(length) ? fmt(length) : '—';   // no video yet
   $('captionExportCaptions').textContent = String(ui.store.project.segments.length);
 }
 
