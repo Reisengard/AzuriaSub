@@ -153,7 +153,7 @@ Cheap wins to schedule after step 8 (or earlier if convenient): SRT/VTT export, 
 
 ## 5. Open items
 
-- ~~**ASR:** still no transcription adapter.~~ Done: one opt-in hosted adapter, Gemini 3.5 Transcribe with the user's own API key (ADR 0011, `src/10g_caption_transcribe.js`). Not yet checked with a real key and real Japanese clips. `transcribe_audio.py` at repo root stays a personal script (its output `audio_transcript.json` is intentionally not committed).
+- ~~**ASR:** still no transcription adapter.~~ Done: one opt-in hosted adapter, Gemini 3.5 Transcribe with the user's own API key (ADR 0011, `src/10g_caption_transcribe.js`). Works with a real key (owner, 2026-10-05). Since 2026-10-05 (owner request) a result made while captions exist is added as a new track instead of replacing them (ADR 0011 §4). `transcribe_audio.py` at repo root stays a personal script (its output `audio_transcript.json` is intentionally not committed).
 - ~~**Notes vs text blocks** overlap (step 7).~~ Decided: separate (ADR 0007).
 - ~~**Real-Chrome export verification** and how CI handles H.264 (step 8).~~ Done: `dev/export_chrome_check.js` on a machine with Google Chrome; there is no CI in the repo, and `npm test` uses mocks (see the release checklist). Still open: the manual release-checklist items and a sign-off by someone other than the implementer.
 - Workers / bundling: no workers today; only decide if export performance needs them.
