@@ -70,6 +70,39 @@ for (const code of ['TRANSCRIBE_KEY_REQUIRED', 'TRANSCRIBE_KEY_INVALID', 'TRANSC
   assert.ok(J.MEDIA_RECOVERY_MESSAGES[code], `${code} needs a recovery hint`);
 }
 
+// A second transcription never replaces captions: it becomes a new track (or fills an empty primary track), as one undo step.
+{
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const first = J.importWordJson(fs.readFileSync(path.join(__dirname, 'fixtures', 'captions', 'word-timestamps.json'), 'utf8'), { duration: 15 });
+  const project = { schemaVersion: 3, generatorVersion: 'test', mode: 'video-captions', id: 'transcribe', media: { duration: 15, width: 1080, height: 1920 },
+    transcript: clone(first), segments: [], plans: {}, safeZones: [], guides: [], seed: 3107, style: { preset: 'creator' }, settings: {}, createdAt: '2026-10-05T00:00:00.000Z', updatedAt: '2026-10-05T00:00:00.000Z' };
+  project.tracks = [J.defaultCaptionTrack(project)];
+  const planned = J.planCaptions(project, project.media); project.segments = planned.segments; project.plans = planned.plans;
+  const store = new J.CaptionStore(clone(project)), before = store.snapshot();
+  const again = J.importWordJson({ schemaVersion: 1, language: 'en', tokens: [{ text: 'Second', start: 0.2, end: 0.6 }, { text: 'take', start: 0.7, end: 1.1 }, { text: 'here', start: 1.2, end: 1.5 }] }, { duration: 15, source: 'gemini' });
+  store.execute({ type: 'add-transcript-track', transcript: again, trackId: 'track_2' });
+  const after = store.project, added = after.segments.filter(segment => segment.trackId === 'track_2');
+  assert.equal(after.tracks.length, 2); assert.ok(added.length >= 1, 'the new words become captions on the new track');
+  assert.deepEqual(after.segments.filter(segment => segment.trackId !== 'track_2'), before.segments, 'existing captions keep their words and times');
+  for (const segment of before.segments) assert.deepEqual(after.plans[segment.id], before.plans[segment.id], 'existing captions keep their look');
+  assert.equal(after.transcript.tokens.length, before.transcript.tokens.length + 3);
+  assert.ok(added.flatMap(segment => segment.tokenIds).every(id => id.startsWith('track_2_') && !before.transcript.tokens.some(token => token.id === id)), 'new words get ids of their own');
+  assert.ok(added.every(segment => after.plans[segment.id] && after.plans[segment.id].trackId === 'track_2'), 'new captions are planned on their track');
+  assert.ok(store.undo()); assert.deepEqual(store.snapshot(), before, 'undo removes the track, its captions and its words');
+  // A text block may still be created while two tracks hold speech at the same time.
+  assert.ok(store.redo());
+  store.execute({ type: 'add-track', trackId: 'track_3' });
+  store.execute({ type: 'create-text-block', text: 'Title', start: 0.1, end: 1.4, trackId: 'track_3' });
+  assert.ok(store.undo() && store.undo());
+  // An empty primary track is filled instead of adding a track; a full project refuses a fourth track.
+  const empty = new J.CaptionStore(clone(Object.assign({}, project, { segments: [], plans: {}, transcript: Object.assign({}, project.transcript, { tokens: [] }) })));
+  empty.execute({ type: 'add-transcript-track', transcript: again });
+  assert.equal(empty.project.tracks.length, 1); assert.ok(empty.project.segments.every(segment => segment.trackId === J.CAPTION_PRIMARY_TRACK_ID));
+  store.execute({ type: 'add-transcript-track', transcript: again });
+  assert.equal(store.project.tracks.length, 3);
+  assert.throws(() => store.execute({ type: 'add-transcript-track', transcript: again }), { code: 'TRACKS_LIMIT' });
+}
+
 (async () => {
   const calls = [];
   const reply = (status, body) => async (url, init) => { calls.push({ url, init }); return { ok: status >= 200 && status < 300, status, json: async () => body }; };

@@ -298,6 +298,7 @@ class CaptionStore {
       case 'set-track-roles': this.setTrackRoles(command); break;
       case 'set-track-style': this.setTrackStyle(command); break;
       case 'add-track': this.addTrack(command); break;
+      case 'add-transcript-track': this.addTranscriptTrack(command); break;
       case 'remove-track': this.removeTrack(command); break;
       case 'rename-track': this.renameTrack(command); break;
       case 'reorder-track': this.reorderTrack(command); break;
@@ -726,6 +727,32 @@ class CaptionStore {
     this.project.tracks.push(track);
   }
 
+  /* { transcript, trackId?, name? }: a transcript made while captions already exist (ADR 0011) joins the project without touching them.
+     Its words get ids of their own and go to the primary track while that is still empty, else to a new track. Only the new captions
+     are planned (as for a text block), so every caption already there keeps its words, times and look; undo removes all of it. */
+  addTranscriptTrack(command) {
+    const project = this.project, source = command.transcript;
+    J.validateTranscript(source, { duration: project.media.duration });
+    if (!source.tokens.length) fail('TRANSCRIPT_EMPTY', 'The transcript has no words.');
+    let track = project.tracks[0];
+    if (J.captionTrackSegments(project, track.id).length) { this.addTrack({ trackId: command.trackId, name: command.name }); track = project.tracks[project.tracks.length - 1]; }
+    const taken = new Set(project.transcript.tokens.map(token => token.id));
+    const tokens = source.tokens.map((token, index) => {
+      let id = `${track.id}_${token.id}`; while (taken.has(id)) id += '_'; taken.add(id);
+      return Object.assign(J.canonicalToken(token, index), { id });
+    });
+    const used = new Set(project.segments.map(segment => segment.id));
+    const segments = J.segmentCaptions(Object.assign({}, source, { tokens }), { duration: project.media.duration }).segments
+      .map(segment => Object.assign(segment, { id: this.freshSegmentId(used), trackId: track.id }));
+    project.transcript.tokens = project.transcript.tokens.concat(tokens);
+    this.stableSortTokens();
+    project.segments.push(...segments);
+    J.captionSortSegments(project);
+    if (!plainObject(project.plans)) project.plans = {};
+    const isolated = Object.assign({}, project, { segments, plans: {} });
+    Object.assign(project.plans, J.planCaptions(isolated, project.media).plans);
+  }
+
   removeTrack(command) {
     const track = this.requireTrack(command.trackId);
     if (track.primary) fail('TRACK_PRIMARY_UNDELETABLE', 'The primary track cannot be deleted.', { trackId: track.id });
@@ -868,7 +895,8 @@ class CaptionStore {
     transcript.tokens = transcript.tokens.filter(token => !dropIds.has(token.id)).concat(tokens);
     transcript.tokens.sort((a, b) => a.start - b.start);
     transcript.timingQuality = 'estimated';
-    J.validateTranscript(transcript, { duration: this.project.media.duration });
+    // Per-track lanes: speech on a second track may share time with the primary track's words (ADR 0010).
+    J.validateTranscript(transcript, { duration: this.project.media.duration, segments: this.project.segments });
   }
 
   createTextBlock(command) {

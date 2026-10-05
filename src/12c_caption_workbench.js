@@ -146,6 +146,19 @@ function applyTranscript(transcript) {
   const planned = J.planCaptions(project, project.media); project.segments = planned.segments; project.plans = planned.plans; project.updatedAt = new Date().toISOString();
   setProject(project); status(`${project.segments.length}件の字幕を作成しました。`);
 }
+/* AI words never replace captions already there: with none they enter like a file import; otherwise they go to the primary track while it
+   is empty, else to a new track, as one undo step. Returns the count added and the track they landed on. */
+function addTranscript(transcript) {
+  const project = ui.store.project;
+  if (!project.segments.length) { applyTranscript(transcript); return { count: ui.store.project.segments.length, track: null }; }
+  const known = new Set(project.segments.map(segment => segment.id)), primary = project.tracks[0];
+  const trackId = J.captionTrackSegments(project, primary.id).length ? J.nextCaptionTrackId(project) : undefined;
+  ui.store.execute({ type: 'add-transcript-track', transcript, trackId });
+  const added = ui.store.project.segments.filter(segment => !known.has(segment.id));
+  ui.errors = {}; ui.selectedId = added[0] ? added[0].id : ui.selectedId; ui.trackId = trackId || primary.id;
+  emit('project');
+  return { count: added.length, track: trackId ? J.captionTrack(ui.store.project, trackId) : null };
+}
 async function importTranscript(file) {
   const text = await file.text(), ext = file.name.toLowerCase().split('.').pop(), duration = ui.store.project.media.duration;
   applyTranscript(ext === 'srt' ? J.importSrt(text, { timingQuality: 'estimated', duration }) : ext === 'vtt' ? J.importVtt(text, { timingQuality: 'estimated', duration }) : J.importWordJson(text, { duration }));
@@ -180,7 +193,9 @@ async function transcribeVideo() {
   if (ui.transcribeAbort) { ui.transcribeAbort.abort(); return; }
   const current = ui.media && ui.media.current; if (!current) { transcribeState('先に動画を読み込んでください。', true); return; }
   const apiKey = $('captionTranscribeKey').value.trim(), languageCode = $('captionTranscribeLang').value, duration = Number(ui.store.project.media.duration) || 0;
-  if (ui.store.project.segments.length && !window.confirm('今ある字幕はすべて置き換えられます。続けますか？')) return;
+  if (J.captionTrackSegments(ui.store.project, ui.store.project.tracks[0].id).length && ui.store.project.tracks.length >= J.CAPTION_MAX_TRACKS) {
+    transcribeState('トラックがいっぱいです。トラックを1本削除してから、もう一度お試しください。', true); return;
+  }
   const abort = ui.transcribeAbort = new AbortController(); $('captionTranscribeStart').textContent = 'キャンセル';
   try {
     if (!apiKey) throw transcribeError('TRANSCRIBE_KEY_REQUIRED', 'A Gemini API key is required.');
@@ -192,8 +207,9 @@ async function transcribeVideo() {
     transcribeState('文字起こし中…（1分ほどかかることがあります）');
     const words = await J.transcribeAudio(wav, { apiKey, languageCode, language: J.TRANSCRIBE_LANGUAGES[languageCode] || 'und', duration: duration || undefined, signal: abort.signal });
     if (!ui.media || ui.media.current !== current) throw transcribeError('TRANSCRIBE_CANCELLED', 'Transcription was cancelled.');   // another video was loaded meanwhile
-    applyTranscript(J.importWordJson(words, { duration: duration || undefined, source: 'gemini' }));
-    transcribeState(`${ui.store.project.segments.length}件の字幕を作成しました。`);
+    const result = addTranscript(J.importWordJson(words, { duration: duration || undefined, source: 'gemini' }));
+    const done = result.track ? `${result.count}件の字幕を新しいトラックに追加しました。` : `${result.count}件の字幕を作成しました。`;
+    transcribeState(done); status(done);
     const dialog = $('captionTranscribeDlg'); if (dialog.close && dialog.open) dialog.close();
   } catch (error) {
     const cancelled = error.code === 'TRANSCRIBE_CANCELLED', text = cancelled ? '文字起こしをキャンセルしました。' : J.recoveryForError ? J.recoveryForError(error).display : error.message;
@@ -255,7 +271,7 @@ J.CaptionStore.prototype.setTechnique = function (command) {
   }
 };
 
-Object.assign(W, { afterProject, beforeProject, drawCaptions, emptyProject, applyTranscript, exportCaptions, exportState, fitPreviewFrame, importTranscript, transcribeVideo, importVideo, onWorkbenchResize, openExportDialog, openProject, projectId, renderActions, setProject });
+Object.assign(W, { afterProject, beforeProject, drawCaptions, emptyProject, addTranscript, applyTranscript, exportCaptions, exportState, fitPreviewFrame, importTranscript, transcribeVideo, importVideo, onWorkbenchResize, openExportDialog, openProject, projectId, renderActions, setProject });
 on('project', beforeProject, -10); on('project', afterProject, 10);
 
 /* The single-file build places scripts after the complete body. Initializing

@@ -224,7 +224,7 @@ BODY = {
     '>文字起こしを読込<input id="captionTranscriptFile"': '>Import transcript<input id="captionTranscriptFile"',
     # AI transcription dialog (ADR 0011)
     '>AIで文字起こし</button>': '>Transcribe with AI</button>', '<h2 id="captionTranscribeTitle">AIで文字起こし</h2>': '<h2 id="captionTranscribeTitle">Transcribe with AI</h2>',
-    '<p>動画の音声を Google の Gemini API に送り、単語ごとのタイミングが付いた字幕を作ります。今ある字幕は置き換えられます。</p>': "<p>Sends the audio of your video to Google's Gemini API and builds captions with per-word timing. Existing captions are replaced.</p>",
+    '<p>動画の音声を Google の Gemini API に送り、単語ごとのタイミングが付いた字幕を作ります。すでに字幕があるときは、新しいトラックに追加されます。</p>': "<p>Sends the audio of your video to Google's Gemini API and builds captions with per-word timing. When captions already exist, the new ones go on a new track.</p>",
     '<strong>音声が Google に送信されます。</strong>映像は送信されません。無料枠の API キーでは、送信した内容が Google の製品改善に使われることがあります。': '<strong>The audio is sent to Google.</strong> The picture is not. With a free-tier API key, Google may use what you send to improve its products.',
     '<label class="caption-transcribe-field">Gemini API キー': '<label class="caption-transcribe-field">Gemini API key',
     '<p class="terms-sub">キーは <a href="https://aistudio.google.com/apikey"': '<p class="terms-sub">Create a key in <a href="https://aistudio.google.com/apikey"',
@@ -653,7 +653,8 @@ CAPTION_UI = {
     '隣り合う字幕だけ結合できます。': 'Only adjacent captions can be merged.', '変更を適用できませんでした。': 'The change could not be applied.',
     '変更を保存しました。': 'Change saved.', '字幕は含まれる単語と隣の字幕の範囲内に設定してください。': 'Keep the caption within its words and neighboring captions.',
     '動画を読み込んでいます…': 'Importing video…', '動画を読み込みました。文字起こしを追加できます。': 'Video imported. You can add a transcript.',
-    '件の字幕を作成しました。': ' captions created.', '先に動画を読み込んでください。': 'Import a video first.', '今ある字幕はすべて置き換えられます。続けますか？': 'All existing captions will be replaced. Continue?',
+    '件の字幕を作成しました。': ' captions created.', '先に動画を読み込んでください。': 'Import a video first.', '件の字幕を新しいトラックに追加しました。': ' captions added on a new track.',
+    'トラックがいっぱいです。トラックを1本削除してから、もう一度お試しください。': 'All tracks are in use. Delete a track, then try again.',
     '音声を準備しています…': 'Preparing the audio…', '文字起こし中…（1分ほどかかることがあります）': 'Transcribing… (this can take about a minute)', '文字起こしをキャンセルしました。': 'Transcription cancelled.',
     '保存したキーを消しました。': 'Saved key removed.', "'文字起こしを開始'": "'Start transcription'", "$('captionTranscribeStart').textContent = 'キャンセル'": "$('captionTranscribeStart').textContent = 'Cancel'", 'スタイルを更新しました。': 'Style updated.',
     '単語数を変えると、ロックされていない字幕の区切りが変わることがあります。続けますか？': 'Changing words per caption may alter unlocked caption boundaries. Continue?',
