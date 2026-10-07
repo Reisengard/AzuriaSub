@@ -5,7 +5,7 @@
 'use strict';
 if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return;
 const W = J.captionWb;
-const { ui, $, clone, fmt, status, selectedSegment, segmentTrackId, sourceVideo, runCommand, on, emit } = W;
+const { ui, $, clone, fmt, status, selectedSegment, segmentTrackId, activeTrack, trackName, sourceVideo, runCommand, on, emit } = W;
 const projectId = () => `caption_${Date.now().toString(36)}`;
 function emptyProject() {
   const now = new Date().toISOString();
@@ -146,8 +146,10 @@ function applyTranscript(transcript) {
   const planned = J.planCaptions(project, project.media); project.segments = planned.segments; project.plans = planned.plans; project.updatedAt = new Date().toISOString();
   setProject(project); status(`${project.segments.length}件の字幕を作成しました。`);
 }
-/* AI words never replace captions already there: with none they enter like a file import; otherwise they go to the primary track while it
-   is empty, else to a new track, as one undo step. Returns the count added and the track they landed on. */
+/* A transcript (file import or AI) never replaces captions already there: with none it becomes the project's transcript; otherwise it goes
+   to the primary track while that is empty, else to a new track, as one undo step. Returns the count added and the track it landed on. */
+const TRACKS_FULL = 'トラックがいっぱいです。トラックを1本削除してから、もう一度お試しください。';
+const tracksFull = () => J.captionTrackSegments(ui.store.project, ui.store.project.tracks[0].id).length > 0 && ui.store.project.tracks.length >= J.CAPTION_MAX_TRACKS;
 function addTranscript(transcript) {
   const project = ui.store.project;
   if (!project.segments.length) { applyTranscript(transcript); return { count: ui.store.project.segments.length, track: null }; }
@@ -161,7 +163,9 @@ function addTranscript(transcript) {
 }
 async function importTranscript(file) {
   const text = await file.text(), ext = file.name.toLowerCase().split('.').pop(), duration = ui.store.project.media.duration;
-  applyTranscript(ext === 'srt' ? J.importSrt(text, { timingQuality: 'estimated', duration }) : ext === 'vtt' ? J.importVtt(text, { timingQuality: 'estimated', duration }) : J.importWordJson(text, { duration }));
+  if (tracksFull()) { status(TRACKS_FULL, true); return; }
+  const result = addTranscript(ext === 'srt' ? J.importSrt(text, { timingQuality: 'estimated', duration }) : ext === 'vtt' ? J.importVtt(text, { timingQuality: 'estimated', duration }) : J.importWordJson(text, { duration }));
+  status(result.track ? `${result.count}件の字幕を新しいトラックに追加しました。` : `${result.count}件の字幕を作成しました。`);
 }
 
 /* AI transcription (ADR 0011): the soundtrack goes to the Gemini API with the user's own key, and only when they start it.
@@ -193,9 +197,7 @@ async function transcribeVideo() {
   if (ui.transcribeAbort) { ui.transcribeAbort.abort(); return; }
   const current = ui.media && ui.media.current; if (!current) { transcribeState('先に動画を読み込んでください。', true); return; }
   const apiKey = $('captionTranscribeKey').value.trim(), languageCode = $('captionTranscribeLang').value, duration = Number(ui.store.project.media.duration) || 0;
-  if (J.captionTrackSegments(ui.store.project, ui.store.project.tracks[0].id).length && ui.store.project.tracks.length >= J.CAPTION_MAX_TRACKS) {
-    transcribeState('トラックがいっぱいです。トラックを1本削除してから、もう一度お試しください。', true); return;
-  }
+  if (tracksFull()) { transcribeState(TRACKS_FULL, true); return; }
   const abort = ui.transcribeAbort = new AbortController(); $('captionTranscribeStart').textContent = 'キャンセル';
   try {
     if (!apiKey) throw transcribeError('TRANSCRIBE_KEY_REQUIRED', 'A Gemini API key is required.');
@@ -215,6 +217,22 @@ async function transcribeVideo() {
     const cancelled = error.code === 'TRANSCRIBE_CANCELLED', text = cancelled ? '文字起こしをキャンセルしました。' : J.recoveryForError ? J.recoveryForError(error).display : error.message;
     transcribeState(text, !cancelled); status(text, !cancelled);
   } finally { ui.transcribeAbort = null; $('captionTranscribeStart').textContent = '文字起こしを開始'; }
+}
+
+/* A style file goes to one track (the store leaves the project style and the other tracks alone), so each track can load its own.
+   With one track there is nothing to choose; otherwise the dialog asks, starting on the track being edited. */
+function loadStyle(preset, trackId) {
+  if (!runCommand({ type: 'apply-caption-style', preset, trackId }, ui.selectedId)) return;
+  if (J.ensureCaptionFonts) J.ensureCaptionFonts(ui.store.project).then(() => { if (ui.preview) ui.preview.renderNow(); W.renderRolesPanel(); }).catch(() => {});
+  status(`スタイルを「${trackName(trackId)}」に読み込みました。元に戻すで戻せます。`);
+}
+function chooseStyleTrack(preset) {
+  const tracks = ui.store.project.tracks, active = activeTrack() || tracks[0];
+  if (tracks.length < 2) { loadStyle(preset, tracks[0].id); return; }
+  const select = $('captionStyleTrack'), dialog = $('captionStyleTrackDlg');
+  select.replaceChildren(...tracks.map(track => { const option = document.createElement('option'); option.value = track.id; option.textContent = track.name || track.id; return option; }));
+  select.value = active.id; ui.stylePreset = preset;
+  if (dialog.showModal) { if (!dialog.open) dialog.showModal(); } else dialog.setAttribute('open', '');
 }
 
 function projectFileStem() { return $('captionProjectName').value.trim().replace(/[\/:*?"<>|]+/g, '-') || `jizura-${ui.store.project.id}`; }
@@ -237,13 +255,13 @@ function bind() {
   $('captionStyleSave').addEventListener('click', () => { J.saveFile('jizura-caption-style.json', JSON.stringify(J.captionStylePreset(ui.store.project), null, 1)); status('スタイルを保存しました。'); });
   $('captionStyleFile').addEventListener('change', async event => {
     const file = event.target.files[0]; event.target.value = ''; if (!file) return;
-    try {
-      const preset = J.parseCaptionStylePreset(await file.text());
-      if (runCommand({ type: 'apply-caption-style', preset }, ui.selectedId)) {
-        if (J.ensureCaptionFonts) J.ensureCaptionFonts(ui.store.project).then(() => { if (ui.preview) ui.preview.renderNow(); W.renderRolesPanel(); }).catch(() => {});
-        status('スタイルを読み込みました。元に戻すで戻せます。');
-      }
-    } catch (error) { status(J.recoveryForError ? J.recoveryForError(error).display : error.message, true); }
+    try { chooseStyleTrack(J.parseCaptionStylePreset(await file.text())); }
+    catch (error) { status(J.recoveryForError ? J.recoveryForError(error).display : error.message, true); }
+  });
+  $('captionStyleTrackApply').addEventListener('click', () => {
+    const dialog = $('captionStyleTrackDlg'), preset = ui.stylePreset; ui.stylePreset = null;
+    if (dialog.close && dialog.open) dialog.close(); else if (dialog.removeAttribute) dialog.removeAttribute('open');
+    if (preset) loadStyle(preset, $('captionStyleTrack').value);
   });
   $('captionExport').addEventListener('click', openExportDialog);
   try { const saved = localStorage.getItem('jizura.exportQuality'); if (saved && $('captionExportQuality').querySelector(`option[value="${saved}"]`)) $('captionExportQuality').value = saved; } catch (_) { /* storage blocked */ }

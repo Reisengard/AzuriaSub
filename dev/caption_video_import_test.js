@@ -32,7 +32,7 @@ const elements = new Map();
 const el = id => { if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id); };
 let previews = 0;
 const context = vm.createContext({ console, Uint8Array, Set, Map, queueMicrotask,
-  document: { addEventListener() {}, querySelector: () => null, querySelectorAll: () => [], getElementById: el, createElement: tag => tag === 'video' ? new Video() : tag === 'canvas' ? new Canvas() : new Element() },
+  document: { addEventListener() {}, querySelector: selector => el(selector), querySelectorAll: () => [], getElementById: el, createElement: tag => tag === 'video' ? new Video() : tag === 'canvas' ? new Canvas() : new Element() },
   URL: { createObjectURL: () => 'blob:test', revokeObjectURL() {} },
   J: {},
   addEventListener() {}
@@ -63,6 +63,25 @@ async function select(id, selected) { el(id).files = [selected]; el(id).emit('ch
   await select('captionVideoFile', { ...file, type: 'text/plain' });
   assert.match(el('captionStatus').textContent, /not identified as a video/);
   await select('captionVideoFile', file); assert.equal(previews, 2, 'retry must connect preview');
+  // A second subtitle file never replaces the first: it lands on a new track, as one undo step.
+  const ui = context.J.captionWorkbench, text = (name, body) => ({ name, text: async () => body });
+  await select('captionTranscriptFile', text('a.srt', '1\n00:00:01,000 --> 00:00:03,000\nFirst file here\n'));
+  const first = JSON.stringify(ui.store.project.segments);
+  assert.equal(ui.store.project.tracks.length, 1); assert.ok(ui.store.project.segments.length > 0);
+  await select('captionTranscriptFile', text('b.srt', '1\n00:00:01,500 --> 00:00:04,000\nSecond file here\n'));
+  const p = ui.store.project, added = p.segments.filter(segment => segment.trackId === 'track_2');
+  assert.equal(p.tracks.length, 2); assert.ok(added.length > 0, 'the second file becomes captions on a new track');
+  assert.equal(JSON.stringify(p.segments.filter(segment => segment.trackId !== 'track_2')), first, 'the first file is kept as it was');
+  assert.ok(p.transcript.tokens.filter(token => added.some(segment => segment.tokenIds.includes(token.id))).every(token => token.timingQuality === 'estimated'));
+  assert.match(el('captionStatus').textContent, /新しいトラックに追加しました/);
+  assert.ok(ui.store.undo()); assert.equal(ui.store.project.tracks.length, 1); assert.equal(JSON.stringify(ui.store.project.segments), first); assert.ok(ui.store.redo());
+  // A style file goes to the chosen track only.
+  const style = JSON.stringify({ kind: 'jizura-caption-style', version: 1, style: { preset: 'punchy', captionTreatment: 'neon' }, tracks: [] });
+  await select('captionStyleFile', text('style.json', style));
+  assert.equal(ui.store.project.tracks.some(track => track.style.captionTreatment), false, 'with several tracks nothing is applied before a track is chosen');
+  el('captionStyleTrack').value = 'track_2'; el('captionStyleTrackApply').emit('click');
+  assert.equal(ui.store.project.tracks[1].style.captionTreatment, 'neon'); assert.equal(ui.store.project.tracks[0].style.captionTreatment, undefined);
+  assert.equal(ui.store.project.style.preset, 'creator', 'the project style is not replaced');
   el('captionNew').emit('click');
   el('captionPlay').emit('click'); el('captionScrub').emit('input');
   assert.equal(context.J.captionWorkbench.media, null);

@@ -338,9 +338,6 @@ class CaptionStore {
      word density and per-caption overrides stay as they are. One command, so one undo restores everything. */
   applyCaptionStyle(command) {
     const preset = J.parseCaptionStylePreset(command.preset), project = this.project;
-    const keep = plainObject(project.style) && project.style.segmentation ? clone(project.style.segmentation) : null;
-    project.style = clone(preset.style);
-    if (keep) project.style.segmentation = keep; else delete project.style.segmentation;
     const techniques = {};
     for (const set of CAPTION_TECHNIQUE_SETS) if (typeof preset.techniques[set] === 'boolean') techniques[set] = preset.techniques[set];
     const enabled = preset.techniques.enabled;
@@ -350,6 +347,10 @@ class CaptionStore {
       for (const [id, value] of Object.entries(enabled[group])) if (typeof value === 'boolean' && Object.prototype.hasOwnProperty.call(registry, id)) kept[id] = value;
       if (Object.keys(kept).length) { techniques.enabled = techniques.enabled || {}; techniques.enabled[group] = kept; }
     }
+    if (command.trackId !== undefined) { this.applyCaptionStyleToTrack(preset, techniques, this.requireTrack(command.trackId)); return; }
+    const keep = plainObject(project.style) && project.style.segmentation ? clone(project.style.segmentation) : null;
+    project.style = clone(preset.style);
+    if (keep) project.style.segmentation = keep; else delete project.style.segmentation;
     if (Object.keys(techniques).length) project.techniques = techniques; else delete project.techniques;
     for (const track of project.tracks) {
       const entry = preset.tracks.find(item => item.id === track.id) || (track.primary ? preset.tracks.find(item => item.primary) : null);
@@ -358,6 +359,31 @@ class CaptionStore {
       track.style = clone(entry.style); if (own) track.style.segmentation = clone(own);
       track.roles = clone(entry.roles);
     }
+    J.captionSyncDefaultBoxes(project);
+    this.replanAfterPlacement();
+  }
+
+  /* { preset, trackId }: the file styles that one track and leaves the project style and the other tracks alone, so each track can
+     load a file of its own. The track takes the file's look as its own overrides: the file's project style with, on top, the file's
+     track of the same id (else its primary track), and that track's Word styles. The track keeps its word density and its box.
+     Techniques are project-wide: the ones the file enabled are switched on, none is switched off. */
+  applyCaptionStyleToTrack(preset, techniques, track) {
+    const project = this.project, style = {};
+    for (const [field, check] of Object.entries(J.CAPTION_TRACK_STYLE_FIELDS)) if (check(preset.style[field])) style[field] = preset.style[field];
+    for (const field of ['look', 'lookSettings']) if (preset.style[field] !== undefined) style[field] = clone(preset.style[field]);
+    const entry = preset.tracks.find(item => item.id === track.id) || preset.tracks.find(item => item.primary) || null;
+    const own = track.style && track.style.segmentation;
+    track.style = J.mergeCaptionTrackStyle(style, entry ? entry.style : {}); if (own) track.style.segmentation = clone(own);
+    if (entry) track.roles = clone(entry.roles);
+    if (!plainObject(project.techniques)) project.techniques = {};
+    for (const set of CAPTION_TECHNIQUE_SETS) if (techniques[set] === true) project.techniques[set] = true;
+    for (const [group, entries] of Object.entries(techniques.enabled || {})) for (const [id, value] of Object.entries(entries)) {
+      if (value !== true) continue;
+      if (!plainObject(project.techniques.enabled)) project.techniques.enabled = {};
+      if (!plainObject(project.techniques.enabled[group])) project.techniques.enabled[group] = {};
+      project.techniques.enabled[group][id] = true;
+    }
+    if (!Object.keys(project.techniques).length) delete project.techniques;
     J.captionSyncDefaultBoxes(project);
     this.replanAfterPlacement();
   }

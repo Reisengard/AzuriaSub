@@ -1028,7 +1028,7 @@ html[data-product-mode=video-captions] label.file:hover { border-color: var(--am
         <button id="captionModeEasy" type="button" aria-pressed="true" title="安全な特效の中から選べます">简易</button>
         <button id="captionModePro" type="button" aria-pressed="false" title="特效の技法を自分で選べます">详细</button>
       </div>
-      <label class="file caption-open-project" title="保存した风格を、いまの字幕に適用します">载入样式<input id="captionStyleFile" type="file" accept=".json,application/json"></label>
+      <label class="file caption-open-project" title="保存した风格を、選んだトラックに適用します">载入样式<input id="captionStyleFile" type="file" accept=".json,application/json"></label>
       <label class="lang-switch"><span class="sr-only">Language</span><select aria-label="Language" onchange="if(this.value)location.href=this.value"><option value="../index.html" lang="ja">日本語</option><option value="../en/index.html" lang="en">English</option><option value="../zh-hans/index.html" lang="zh-Hans" selected>简体中文</option></select></label>
       <div class="caption-menu-wrap">
         <button id="captionMenuButton" type="button" class="ghost caption-menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="captionMenu" aria-label="メニュー" title="メニュー">⋯</button>
@@ -1655,6 +1655,16 @@ html[data-product-mode=video-captions] label.file:hover { border-color: var(--am
     <p class="terms-sub">7分までの動画に対応しています。歌や固有名詞は聞き間違えることがあるので、作成後に字幕を確認してください。</p>
     <p id="captionTranscribeState" class="caption-export-state" role="status"></p>
     <div class="terms-foot"><button value="close" class="ghost">关闭</button><button id="captionTranscribeStart" type="button" class="primary">文字起こしを開始</button></div>
+  </form>
+</dialog>
+<dialog id="captionStyleTrackDlg" class="terms" aria-labelledby="captionStyleTrackTitle">
+  <form method="dialog">
+    <h2 id="captionStyleTrackTitle">风格を読み込むトラック</h2>
+    <p>選んだトラックだけに风格を適用します。ほかのトラックはそのままです。</p>
+    <label class="caption-transcribe-field">適用先のトラック
+      <select id="captionStyleTrack"></select>
+    </label>
+    <div class="terms-foot"><button value="close" class="ghost">关闭</button><button id="captionStyleTrackApply" type="button" class="primary">风格を適用</button></div>
   </form>
 </dialog>
 <dialog id="captionRestoreDlg" class="terms" aria-labelledby="captionRestoreTitle">
@@ -7638,6 +7648,8 @@ J.randomCaptionLook = (project, options = {}) => {
    Not included: caption text, timing, word density (segmentation), boxes and positions, per-caption overrides
    and video edits. Those belong to the project, not to the look.
    Tracks are matched by id (the primary track by its flag); tracks the file does not know are left alone.
+   Loading goes to one track the user chooses (apply-caption-style with trackId): that track takes the file's look as its own
+   style and roles; the project style and the other tracks stay.
    ============================================================ */
 (() => {
 'use strict';
@@ -43964,9 +43976,6 @@ class CaptionStore {
      word density and per-caption overrides stay as they are. One command, so one undo restores everything. */
   applyCaptionStyle(command) {
     const preset = J.parseCaptionStylePreset(command.preset), project = this.project;
-    const keep = plainObject(project.style) && project.style.segmentation ? clone(project.style.segmentation) : null;
-    project.style = clone(preset.style);
-    if (keep) project.style.segmentation = keep; else delete project.style.segmentation;
     const techniques = {};
     for (const set of CAPTION_TECHNIQUE_SETS) if (typeof preset.techniques[set] === 'boolean') techniques[set] = preset.techniques[set];
     const enabled = preset.techniques.enabled;
@@ -43976,6 +43985,10 @@ class CaptionStore {
       for (const [id, value] of Object.entries(enabled[group])) if (typeof value === 'boolean' && Object.prototype.hasOwnProperty.call(registry, id)) kept[id] = value;
       if (Object.keys(kept).length) { techniques.enabled = techniques.enabled || {}; techniques.enabled[group] = kept; }
     }
+    if (command.trackId !== undefined) { this.applyCaptionStyleToTrack(preset, techniques, this.requireTrack(command.trackId)); return; }
+    const keep = plainObject(project.style) && project.style.segmentation ? clone(project.style.segmentation) : null;
+    project.style = clone(preset.style);
+    if (keep) project.style.segmentation = keep; else delete project.style.segmentation;
     if (Object.keys(techniques).length) project.techniques = techniques; else delete project.techniques;
     for (const track of project.tracks) {
       const entry = preset.tracks.find(item => item.id === track.id) || (track.primary ? preset.tracks.find(item => item.primary) : null);
@@ -43984,6 +43997,31 @@ class CaptionStore {
       track.style = clone(entry.style); if (own) track.style.segmentation = clone(own);
       track.roles = clone(entry.roles);
     }
+    J.captionSyncDefaultBoxes(project);
+    this.replanAfterPlacement();
+  }
+
+  /* { preset, trackId }: the file styles that one track and leaves the project style and the other tracks alone, so each track can
+     load a file of its own. The track takes the file's look as its own overrides: the file's project style with, on top, the file's
+     track of the same id (else its primary track), and that track's Word styles. The track keeps its word density and its box.
+     Techniques are project-wide: the ones the file enabled are switched on, none is switched off. */
+  applyCaptionStyleToTrack(preset, techniques, track) {
+    const project = this.project, style = {};
+    for (const [field, check] of Object.entries(J.CAPTION_TRACK_STYLE_FIELDS)) if (check(preset.style[field])) style[field] = preset.style[field];
+    for (const field of ['look', 'lookSettings']) if (preset.style[field] !== undefined) style[field] = clone(preset.style[field]);
+    const entry = preset.tracks.find(item => item.id === track.id) || preset.tracks.find(item => item.primary) || null;
+    const own = track.style && track.style.segmentation;
+    track.style = J.mergeCaptionTrackStyle(style, entry ? entry.style : {}); if (own) track.style.segmentation = clone(own);
+    if (entry) track.roles = clone(entry.roles);
+    if (!plainObject(project.techniques)) project.techniques = {};
+    for (const set of CAPTION_TECHNIQUE_SETS) if (techniques[set] === true) project.techniques[set] = true;
+    for (const [group, entries] of Object.entries(techniques.enabled || {})) for (const [id, value] of Object.entries(entries)) {
+      if (value !== true) continue;
+      if (!plainObject(project.techniques.enabled)) project.techniques.enabled = {};
+      if (!plainObject(project.techniques.enabled[group])) project.techniques.enabled[group] = {};
+      project.techniques.enabled[group][id] = true;
+    }
+    if (!Object.keys(project.techniques).length) delete project.techniques;
     J.captionSyncDefaultBoxes(project);
     this.replanAfterPlacement();
   }
@@ -47826,7 +47864,7 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
 'use strict';
 if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return;
 const W = J.captionWb;
-const { ui, $, clone, fmt, status, selectedSegment, segmentTrackId, sourceVideo, runCommand, on, emit } = W;
+const { ui, $, clone, fmt, status, selectedSegment, segmentTrackId, activeTrack, trackName, sourceVideo, runCommand, on, emit } = W;
 const projectId = () => `caption_${Date.now().toString(36)}`;
 function emptyProject() {
   const now = new Date().toISOString();
@@ -47967,8 +48005,10 @@ function applyTranscript(transcript) {
   const planned = J.planCaptions(project, project.media); project.segments = planned.segments; project.plans = planned.plans; project.updatedAt = new Date().toISOString();
   setProject(project); status(`${project.segments.length}件の字幕を作成しました。`);
 }
-/* AI words never replace captions already there: with none they enter like a file import; otherwise they go to the primary track while it
-   is empty, else to a new track, as one undo step. Returns the count added and the track they landed on. */
+/* A transcript (file import or AI) never replaces captions already there: with none it becomes the project's transcript; otherwise it goes
+   to the primary track while that is empty, else to a new track, as one undo step. Returns the count added and the track it landed on. */
+const TRACKS_FULL = 'トラックがいっぱいです。トラックを1本削除してから、もう一度お試しください。';
+const tracksFull = () => J.captionTrackSegments(ui.store.project, ui.store.project.tracks[0].id).length > 0 && ui.store.project.tracks.length >= J.CAPTION_MAX_TRACKS;
 function addTranscript(transcript) {
   const project = ui.store.project;
   if (!project.segments.length) { applyTranscript(transcript); return { count: ui.store.project.segments.length, track: null }; }
@@ -47982,7 +48022,9 @@ function addTranscript(transcript) {
 }
 async function importTranscript(file) {
   const text = await file.text(), ext = file.name.toLowerCase().split('.').pop(), duration = ui.store.project.media.duration;
-  applyTranscript(ext === 'srt' ? J.importSrt(text, { timingQuality: 'estimated', duration }) : ext === 'vtt' ? J.importVtt(text, { timingQuality: 'estimated', duration }) : J.importWordJson(text, { duration }));
+  if (tracksFull()) { status(TRACKS_FULL, true); return; }
+  const result = addTranscript(ext === 'srt' ? J.importSrt(text, { timingQuality: 'estimated', duration }) : ext === 'vtt' ? J.importVtt(text, { timingQuality: 'estimated', duration }) : J.importWordJson(text, { duration }));
+  status(result.track ? `${result.count}件の字幕を新しいトラックに追加しました。` : `${result.count}件の字幕を作成しました。`);
 }
 
 /* AI transcription (ADR 0011): the soundtrack goes to the Gemini API with the user's own key, and only when they start it.
@@ -48014,9 +48056,7 @@ async function transcribeVideo() {
   if (ui.transcribeAbort) { ui.transcribeAbort.abort(); return; }
   const current = ui.media && ui.media.current; if (!current) { transcribeState('先に動画を読み込んでください。', true); return; }
   const apiKey = $('captionTranscribeKey').value.trim(), languageCode = $('captionTranscribeLang').value, duration = Number(ui.store.project.media.duration) || 0;
-  if (J.captionTrackSegments(ui.store.project, ui.store.project.tracks[0].id).length && ui.store.project.tracks.length >= J.CAPTION_MAX_TRACKS) {
-    transcribeState('トラックがいっぱいです。トラックを1本削除してから、もう一度お試しください。', true); return;
-  }
+  if (tracksFull()) { transcribeState(TRACKS_FULL, true); return; }
   const abort = ui.transcribeAbort = new AbortController(); $('captionTranscribeStart').textContent = 'キャンセル';
   try {
     if (!apiKey) throw transcribeError('TRANSCRIBE_KEY_REQUIRED', 'A Gemini API key is required.');
@@ -48036,6 +48076,22 @@ async function transcribeVideo() {
     const cancelled = error.code === 'TRANSCRIBE_CANCELLED', text = cancelled ? '文字起こしをキャンセルしました。' : J.recoveryForError ? J.recoveryForError(error).display : error.message;
     transcribeState(text, !cancelled); status(text, !cancelled);
   } finally { ui.transcribeAbort = null; $('captionTranscribeStart').textContent = '文字起こしを開始'; }
+}
+
+/* A style file goes to one track (the store leaves the project style and the other tracks alone), so each track can load its own.
+   With one track there is nothing to choose; otherwise the dialog asks, starting on the track being edited. */
+function loadStyle(preset, trackId) {
+  if (!runCommand({ type: 'apply-caption-style', preset, trackId }, ui.selectedId)) return;
+  if (J.ensureCaptionFonts) J.ensureCaptionFonts(ui.store.project).then(() => { if (ui.preview) ui.preview.renderNow(); W.renderRolesPanel(); }).catch(() => {});
+  status(`スタイルを「${trackName(trackId)}」に読み込みました。元に戻すで戻せます。`);
+}
+function chooseStyleTrack(preset) {
+  const tracks = ui.store.project.tracks, active = activeTrack() || tracks[0];
+  if (tracks.length < 2) { loadStyle(preset, tracks[0].id); return; }
+  const select = $('captionStyleTrack'), dialog = $('captionStyleTrackDlg');
+  select.replaceChildren(...tracks.map(track => { const option = document.createElement('option'); option.value = track.id; option.textContent = track.name || track.id; return option; }));
+  select.value = active.id; ui.stylePreset = preset;
+  if (dialog.showModal) { if (!dialog.open) dialog.showModal(); } else dialog.setAttribute('open', '');
 }
 
 function projectFileStem() { return $('captionProjectName').value.trim().replace(/[\/:*?"<>|]+/g, '-') || `jizura-${ui.store.project.id}`; }
@@ -48058,13 +48114,13 @@ function bind() {
   $('captionStyleSave').addEventListener('click', () => { J.saveFile('jizura-caption-style.json', JSON.stringify(J.captionStylePreset(ui.store.project), null, 1)); status('スタイルを保存しました。'); });
   $('captionStyleFile').addEventListener('change', async event => {
     const file = event.target.files[0]; event.target.value = ''; if (!file) return;
-    try {
-      const preset = J.parseCaptionStylePreset(await file.text());
-      if (runCommand({ type: 'apply-caption-style', preset }, ui.selectedId)) {
-        if (J.ensureCaptionFonts) J.ensureCaptionFonts(ui.store.project).then(() => { if (ui.preview) ui.preview.renderNow(); W.renderRolesPanel(); }).catch(() => {});
-        status('スタイルを読み込みました。元に戻すで戻せます。');
-      }
-    } catch (error) { status(J.recoveryForError ? J.recoveryForError(error).display : error.message, true); }
+    try { chooseStyleTrack(J.parseCaptionStylePreset(await file.text())); }
+    catch (error) { status(J.recoveryForError ? J.recoveryForError(error).display : error.message, true); }
+  });
+  $('captionStyleTrackApply').addEventListener('click', () => {
+    const dialog = $('captionStyleTrackDlg'), preset = ui.stylePreset; ui.stylePreset = null;
+    if (dialog.close && dialog.open) dialog.close(); else if (dialog.removeAttribute) dialog.removeAttribute('open');
+    if (preset) loadStyle(preset, $('captionStyleTrack').value);
   });
   $('captionExport').addEventListener('click', openExportDialog);
   try { const saved = localStorage.getItem('jizura.exportQuality'); if (saved && $('captionExportQuality').querySelector(`option[value="${saved}"]`)) $('captionExportQuality').value = saved; } catch (_) { /* storage blocked */ }

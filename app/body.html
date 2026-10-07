@@ -28,7 +28,7 @@
         <button id="captionModeEasy" type="button" aria-pressed="true" title="安全な演出の中から選べます">かんたん</button>
         <button id="captionModePro" type="button" aria-pressed="false" title="演出の技法を自分で選べます">詳細</button>
       </div>
-      <label class="file caption-open-project" title="保存したスタイルを、いまの字幕に適用します">スタイルを読込<input id="captionStyleFile" type="file" accept=".json,application/json"></label>
+      <label class="file caption-open-project" title="保存したスタイルを、選んだトラックに適用します">スタイルを読込<input id="captionStyleFile" type="file" accept=".json,application/json"></label>
       @LANG_CAPTIONS@
       <div class="caption-menu-wrap">
         <button id="captionMenuButton" type="button" class="ghost caption-menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="captionMenu" aria-label="メニュー" title="メニュー">⋯</button>
@@ -655,6 +655,16 @@
     <p class="terms-sub">7分までの動画に対応しています。歌や固有名詞は聞き間違えることがあるので、作成後に字幕を確認してください。</p>
     <p id="captionTranscribeState" class="caption-export-state" role="status"></p>
     <div class="terms-foot"><button value="close" class="ghost">閉じる</button><button id="captionTranscribeStart" type="button" class="primary">文字起こしを開始</button></div>
+  </form>
+</dialog>
+<dialog id="captionStyleTrackDlg" class="terms" aria-labelledby="captionStyleTrackTitle">
+  <form method="dialog">
+    <h2 id="captionStyleTrackTitle">スタイルを読み込むトラック</h2>
+    <p>選んだトラックだけにスタイルを適用します。ほかのトラックはそのままです。</p>
+    <label class="caption-transcribe-field">適用先のトラック
+      <select id="captionStyleTrack"></select>
+    </label>
+    <div class="terms-foot"><button value="close" class="ghost">閉じる</button><button id="captionStyleTrackApply" type="button" class="primary">スタイルを適用</button></div>
   </form>
 </dialog>
 <dialog id="captionRestoreDlg" class="terms" aria-labelledby="captionRestoreTitle">

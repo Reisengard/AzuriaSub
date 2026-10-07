@@ -9,6 +9,8 @@
    Not included: caption text, timing, word density (segmentation), boxes and positions, per-caption overrides
    and video edits. Those belong to the project, not to the look.
    Tracks are matched by id (the primary track by its flag); tracks the file does not know are left alone.
+   Loading goes to one track the user chooses (apply-caption-style with trackId): that track takes the file's look as its own
+   style and roles; the project style and the other tracks stay.
    ============================================================ */
 (() => {
 'use strict';

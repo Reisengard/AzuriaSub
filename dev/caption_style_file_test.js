@@ -54,6 +54,37 @@ target.undo();
 assert.equal(JSON.stringify(target.project), before, 'one undo restores everything');
 assert.equal(JSON.stringify(target.project.segments.map(item => [item.id, item.start, item.end])), timing);
 
+/* into one track: only that track changes, and each track can take a file of its own */
+{
+  const other = make();
+  other.execute({ type: 'set-caption-style', style: { preset: 'creator', captionTreatment: 'echo', accentColor: '#00ff88' } });
+  other.execute({ type: 'set-track-roles', trackId: TRACK, roles: { base: { color: '#00ff88' } } });
+  const presetB = J.captionStylePreset(other.project);
+  const store = make();
+  store.execute({ type: 'add-transcript-track', transcript: J.importWordJson({ schemaVersion: 1, language: 'en', tokens: [{ text: 'Second', start: 0.2, end: 0.6 }, { text: 'track', start: 0.7, end: 1.1 }] }, { duration: 15 }), trackId: 'track_2' });
+  store.execute({ type: 'set-track-style', trackId: 'track_2', style: { segmentation: { maxWords: 2 } } });
+  const projectStyle = JSON.stringify(store.project.style), primary = JSON.stringify(store.project.tracks[0]), start = JSON.stringify(store.project);
+  store.execute({ type: 'apply-caption-style', preset, trackId: 'track_2' });
+  let q = store.project, second = q.tracks[1], own = q.segments.find(item => item.trackId === 'track_2');
+  assert.equal(JSON.stringify(q.style), projectStyle, 'the project style is not touched');
+  assert.equal(JSON.stringify(q.tracks[0]), primary, 'the other track is not touched');
+  assert.equal(second.style.preset, 'punchy'); assert.equal(second.style.captionTreatment, 'neon'); assert.equal(second.style.accentColor, '#22ccff');
+  assert.equal(second.style.motion, .8, "the file's track override wins over its project style"); assert.equal(second.style.editor, undefined);
+  assert.deepStrictEqual(second.style.look, source.project.style.look); assert.deepStrictEqual(second.style.segmentation, { maxWords: 2 }, 'the track keeps its own density');
+  assert.deepStrictEqual(second.roles, source.project.tracks[0].roles); assert.equal(q.techniques.wa, true);
+  assert.equal(J.captionResolvedPlan(q.plans[own.id]).entrance, 'captionSoftRise', 'the track is re-planned with the loaded look');
+  assert.notEqual(J.captionResolvedPlan(q.plans[q.segments.find(item => item.trackId !== 'track_2').id]).entrance, 'captionSoftRise', 'the other track keeps its look');
+  const mid = JSON.stringify(q);
+  store.execute({ type: 'apply-caption-style', preset: presetB, trackId: TRACK });
+  q = store.project;
+  assert.equal(q.tracks[0].style.captionTreatment, 'echo'); assert.equal(q.tracks[0].roles.base.color, '#00ff88');
+  assert.equal(q.tracks[1].style.captionTreatment, 'neon', 'the first load stays on its track'); assert.equal(JSON.stringify(q.style), projectStyle);
+  assert.equal(q.techniques.wa, true, 'a later file never switches a technique off');
+  store.undo(); assert.equal(JSON.stringify(store.project), mid);
+  store.undo(); assert.equal(JSON.stringify(store.project), start, 'one undo per load');
+  assert.equal(code(() => store.execute({ type: 'apply-caption-style', preset, trackId: 'nope' })), 'TRACK_NOT_FOUND');
+}
+
 /* bad files fail loudly */
 for (const bad of ['not json', '{}', JSON.stringify({ kind: 'jizura-caption-style', version: 9, style: {} }), JSON.stringify({ kind: 'jizura-caption-style', version: 1 }),
   JSON.stringify({ kind: 'jizura-caption-style', version: 1, style: { preset: 'nope' } }), JSON.stringify({ kind: 'jizura-caption-style', version: 1, style: { look: { enter: 'captionExplode' } } }),
