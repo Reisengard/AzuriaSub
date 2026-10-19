@@ -26,4 +26,22 @@
 **Priority:** P4
 **Depends on:** R3 (pause re-break, `replan-segments`)
 
+## Design system
+
+### Write DESIGN.md for Azuria Sub
+
+**What:** Run `/design-consultation` to write `DESIGN.md` from the captions-scope tokens in `app/style.css:842-848`, including the colour roles decided for caption timing.
+
+**Why:** Every design review so far has had to dig colour and type rules out of `style.css`. Shared rules (for example "gold = will change") keep new features consistent.
+
+**Pros:** Future reviews and features start from one written system. Today's decisions (design review decision 10 in `docs/architecture/caption-timing-design.md`) get reused.
+
+**Cons:** One more document to keep in step with `style.css`.
+
+**Context:** No `DESIGN.md` exists. The caption timing design review (2026-10-19) pinned colour roles: gold for will-change and the primary button, cyan for loop, `--muted` dashed lines for needs-a-look, `--steel` never as text. Start from those and the existing component vocabulary (`.small` buttons, drawer filter, toast with Undo, `.tc` timecodes).
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None; best after R1 ships.
+
 ## Completed

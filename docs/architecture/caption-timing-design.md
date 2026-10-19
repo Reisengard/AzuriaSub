@@ -200,6 +200,106 @@ Before R1 starts, pick **3 of your own short clips**: one with Gemini timing, on
 
 **Follow-ups** are in `TODOS.md`: Gemini per-word confidence (P3), and dropping the density confirm dialog after R3 (P4).
 
+## Design review decisions (2026-10-19)
+
+`/plan-design-review` decisions. Reference mockups: Check timing = variant B, Anchor fix = variant B (paths in "Approved Mockups" in the ~/.gstack copy). Where this section and the text above disagree, this section wins.
+
+1. **One timing control in the transport (1A).** R1 adds a single transport button **Check timing**. In R4 it becomes a split button **Fix timing ▾** whose menu holds **Check timing only**. The Timing check list always lives at the top of the Captions drawer, which closes Open Question 4.
+
+2. **List order (2A).** Rows stay in time order, as in mockup B. Under the Apply/Review buttons, a chip row reads **All · Needs a look N · Ready M**, reusing the drawer's existing filter style. The panel opens on *Needs a look* when N > 0, otherwise on *All*.
+
+   Screen structure (what the user sees first, second, third):
+   ```
+   Captions drawer (340px)                 Preview (largest)            
+   ┌─────────────────────────────┐         ┌──────────────┐
+   │ 1 Timing check   [status]   │ ①        │  video 9:16  │
+   │   [Apply N]  [Review K]     │ ①        │   caption    │
+   │   All · Needs a look K · Ready N  ②    └──────────────┘
+   │   rows (time order)         │ ②
+   ├─────────────────────────────┤
+   │ caption list (existing)     │
+   └─────────────────────────────┘
+   Transport: Play Loop 1x Sync Snap [Check timing | Fix timing ▾]   ③ entry point
+   Timeline: ruler · VIDEO waveform with proposal marks ③ · caption tracks
+   ```
+
+3. **Checking state (3A).** While the sound is decoding, the button shows **Checking sound… NN%** with a Cancel (×). Other editing stays enabled, and Cancel stores nothing. Once evidence is stored, later checks are instant. When the check finishes, the Captions drawer opens at the Timing check panel, and a collapsed timeline strip expands.
+4. **One status line (4A).** The panel's top line shows one state at a time, in plain words, and is mirrored to `#captionStatus`. Disabled reasons are visible text, never a hover-only hint: tapping the disabled transport button shows the same reason.
+5. **Live list (5A).** After every store change (edit, drag, lock, Apply, Undo/Redo), proposals are recomputed from the stored evidence. Rows and ghost marks update, ticks are kept per edge id, removed rows vanish without animation, and the counts update. Undoing an Apply brings its rows back.
+
+   | Feature | Loading | Empty | Error / blocked | Success | Partial |
+   |---|---|---|---|---|---|
+   | Check timing | button "Checking sound… NN%" + × | "Everything already matches the voice" | "No clear pauses in this sound" · "Couldn't read this video's sound" · "No sound to check" · "Up to 10 minutes" · "Link the video to check timing" | "N changes · K need a look" | rows from stored evidence; mismatch banner "Results from a different video · Check this video" |
+   | Apply | — | Apply disabled when nothing is ticked | store refusal: "These changes overlap; nothing was moved" | "N changes applied · Undo" | unticked rows stay listed |
+   | Review doubtful | — | Review hidden when K = 0 | — | end line (see Pass 3) | progress "2 / 3" |
+   | Fix timing (R4) | same busy state | same empty line | same blocked lines | toast + status line counts | unmatched-pause runs listed as Needs a look |
+
+6. **Review doubtful (6A).** A bar under the preview, styled like the approved anchor hint bar: **Change 2 / 3 · [Enter] Accept · [↓] Skip · [W] Word sync · [Esc] Stop**. Each item is also a button. Each doubtful change plays from 1 s before. Word sync returns to the review afterwards. The review ends with **Reviewed 3: 2 accepted, 1 skipped** in the status line. The keys are listed in the help dialog.
+7. **Anchor payoff (7A).** After an anchor lands, the loop restarts from its 0.5 s lead-in. The re-spread words flash gold for 600 ms in the word lane (no motion under prefers-reduced-motion), and the anchored word keeps its pin. Refusals appear inline in the hint bar in `--danger` for 4 s, never over the video.
+8. **Snap motion (8A).** On Apply, on accepting a doubtful edge, and on Fix timing, moved block edges slide from the old to the new position (200 ms ease-out, `--amber`), then settle into the normal style. There is no motion under prefers-reduced-motion, and Undo redraws instantly.
+
+   Journey storyboard:
+   | Step | User does | User feels | Specified by |
+   |---|---|---|---|
+   | 1 | Imports Gemini/SRT captions | "close, but rough" | existing import |
+   | 2 | Presses Check timing | hopeful, waiting | 3 (busy + auto-open) |
+   | 3 | Reads "14 changes · 3 need a look" | relief, in control | 2, 4 |
+   | 4 | Apply 14 | "whoa, it snapped" | 8 (slide) |
+   | 5 | Reviews 3 doubtful | focused, quick | 6 (review bar, 2 / 3, end line) |
+   | 6 | Fixes a drifting highlight | "one tap fixed the phrase" | 7 (replay + flash) |
+   | 7 | Exports | proud, trusts the tool | existing export |
+
+9. **Copy (9A).** One counting unit everywhere: a *change* is one start or one end.
+   - Status: "N changes · K need a look" / 「調整 N件 · 確認 K件」.
+   - Buttons: "Apply N" / 「適用 N」 and "Review K" / 「確認 K」.
+   - Rows: "Starts 0.18 s later" / 「開始を0.18秒遅く」 and "Ends 0.25 s earlier" / 「終了を0.25秒早く」.
+   - Tag: "Needs a look" / 「要確認」. Toast: "N changes applied · Undo".
+   - The words "edge" and "tightened" are not used in UI text. Japanese strings are pinned here; the other editions translate from English.
+
+   Visual style: the mockups' gradient buttons and glows come from the image generator. The existing flat tokens and borders in `app/style.css` apply, with no gradients and no glows.
+
+10. **Colour roles (10A).** Tokens are from `app/style.css:842-848`, captions scope.
+
+   | Role | Token | Used for |
+   |---|---|---|
+   | Will change / changed | `--amber` (marks), `--gold-text` (text), `--on-gold` on fills | proposal marks with arrows, change text in rows, anchor pins, the 200 ms slide, the single primary **Apply** button |
+   | Needs a look | dashed `--muted` line + "?" badge; chip `--raised2` fill with `--text` | doubtful marks and "Needs a look" tags (contrast ≥ 4.5:1) |
+   | Loop | `--cyan` (existing `.caption-loop-region`) | the 0.75× anchor loop band; this replaces the gold band in mockup B |
+   | Error / refusal | `--danger` | inline refusals in the hint bar |
+   | Neutral controls | existing `.small` transport buttons, drawer filter style | Check timing / Fix timing ▾, the chip row, review and hint bar buttons |
+   | Structure | `--steel` fill or border only, never text | panel separators, keycap borders |
+
+   New components (status line, chip row, review/hint bar, word lane) reuse existing vocabulary: `.small` buttons, the drawer filter, `toastUndo`, `.tc` mono timecodes, 4px radius.
+
+11. **Anchor mode controls (11A).**
+    - **Entry:** **Fix word timing** / 「単語のタイミング」 in the floating caption toolbar, or **A** with a caption selected. The timeline zooms to that caption.
+    - **In the mode:** the hint bar shows a **Fix word timing** label and the buttons **Set · −0.05 s · +0.05 s · Done**. **A** = Set, ignored until a word is selected (the hint says "Pick a word first"). `,` `.` nudge the selected word, not the caption. **Esc** = Done, handled before the drawer's own Esc handler (`12bx_caption_shell.js:123`). Shortcuts are ignored while typing in a text field.
+    - **Leaving** restores the previous speed and loop.
+12. **Narrow screens (12A).** Under 768 px:
+    - The Timing check panel is the Captions sheet, opening on *Needs a look*.
+    - Review and anchor modes close the sheet and show one bottom action bar above the tab bar, with 44 px buttons. The preview stays visible.
+    - The word lane scrolls sideways, with chips at least 44 px wide on touch and 24 px with a fine pointer. The timeline zooms to the caption.
+    - Test with the longest Japanese and English labels.
+13. **Accessibility (13A).**
+    - Each row is a real checkbox labelled "Caption N, starts/ends X s earlier/later" (plus "needs a look"). Clicking the row selects and seeks; the checkbox toggles.
+    - The panel is a labelled region, and the chip row is a radio group. Tab order: status → Apply → Review → chips → rows.
+    - The status line, "2 / 3" progress, review end and refusals are announced politely via `#captionStatus`.
+    - Marks differ by shape (arrow vs dashed + "?"), not by colour alone. Hint and review bar items are real buttons with keycap text.
+    - Focus returns to the triggering control when a mode ends.
+
+14. **Readable marks (14A).** Proposal marks draw at true scale but never shorter than 6 px (arrow plus tip), and the exact change shows in a tooltip on hover or focus. Hovering or focusing a row highlights its mark with a `--gold-text` outline, and hovering a mark highlights its row.
+15. **Reason tags (15A).** Rows without a proposal show one reason:
+    - **Protected** / 「保護」: manual, locked or anchored timing. Muted, not counted in *Needs a look*, shown only under the *All* chip.
+    - **No clear start** / 「開始が不明瞭」 or **No clear end** / 「終了が不明瞭」: listed in *Needs a look*.
+    - **Break needs a look** / 「区切り要確認」: an unmatched pause in R3/R4, listed in *Needs a look*.
+
+    This replaces "not checked".
+16. **Fix timing result (16A).** The toast and status line read "N changes applied · M captions re-broken · Undo" / 「調整 N件 · 区切り変更 M件」.
+    - Changed captions get a small **Timing** or **Re-broken** marker, distinguished by shape and label, not colour alone. The *Changed by Fix timing* filter lists both kinds.
+    - Markers belong to that Fix timing step: Undo hides them, Redo shows them, and **Clear marks** removes them. They are view state and never enter the saved project.
+    - This replaces "lasts until the project is closed".
+17. **One exit for the anchor fix (17A).** The hint/action bar's **Done** (and Esc) is the only exit. The caption's drawer row keeps the gold outline and an "Anchors: N" / 「アンカー N」 chip, without a Done button. This changes mockup B's drawer-row button.
+
 <!-- gstack:office-hours:concerns:start -->
 ## Reviewer Concerns
 
