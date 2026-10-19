@@ -144,7 +144,7 @@ The existing pipeline covers it. `python build.py` regenerates the 7 editions, a
 
 ## Next Steps
 
-1. Draw the flow as an artifact and settle Open Question 4. Done 2026-10-19: drawing at https://claude.ai/artifact/13XghSsNqUW1A61aNcrk8h (private to the owner); Open Question 4 is closed by design decision 1. R1 UI code waits for the owner's answers to the drawing's open questions.
+1. Draw the flow as an artifact and settle Open Question 4. Done 2026-10-19: drawing at https://claude.ai/artifact/13XghSsNqUW1A61aNcrk8h (private to the owner); Open Question 4 is closed by design decision 1. The owner answered its open questions the same day (design decision 18).
 2. Write ADR 0012, and add slices R1–R4 to a plan doc in `docs/architecture/` with status lines, like the rework plan.
 3. R1: the `10h` audio helper, `10i` evidence, proposals, `snap-caption-edges`, the stored evidence, Check timing UI and the benchmark harness. Tests in `dev/caption_timing_refine_test.js` (synthetic signals, both tightening directions, refusals, exact undo).
 4. R2, R3, R4 in order, each a separate commit with tests green.
@@ -299,6 +299,13 @@ Before R1 starts, pick **3 of your own short clips**: one with Gemini timing, on
     - Markers belong to that Fix timing step: Undo hides them, Redo shows them, and **Clear marks** removes them. They are view state and never enter the saved project.
     - This replaces "lasts until the project is closed".
 17. **One exit for the anchor fix (17A).** The hint/action bar's **Done** (and Esc) is the only exit. The caption's drawer row keeps the gold outline and an "Anchors: N" / 「アンカー N」 chip, without a Done button. This changes mockup B's drawer-row button.
+
+18. **Answers to the drawing's open questions (2026-10-19, owner).**
+    - **Rows are one line:** tick · time · text · change. A reason tag wraps to a second line only when present.
+    - **The panel pushes the caption list down** and has a × to close. Closing loses nothing, because results recompute from stored evidence.
+    - **Japanese transport label:** 「タイミング確認」. In R4 it becomes 「タイミング修正 ▾」, with 「確認だけ」 in the menu.
+    - **The panel does not close itself** once everything is applied or reviewed. The status line keeps "N changes applied · Undo" until the user closes it or edits elsewhere.
+    - **Anchor mode dims the other captions** on the timeline to 50% opacity; they return to normal on Done.
 
 <!-- gstack:office-hours:concerns:start -->
 ## Reviewer Concerns
