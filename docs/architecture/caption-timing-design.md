@@ -160,6 +160,46 @@ Before R1 starts, pick **3 of your own short clips**: one with Gemini timing, on
 - Offered four demo moments, you picked "All three as one flow". You care about the whole job getting finished, not one clever button.
 - When the second opinion challenged P3, you revised it instead of defending the first version, so the design no longer promises what plain loudness can't do.
 
+## Engineering review amendments (2026-10-19)
+
+`/plan-eng-review` changed the plan as follows (decision ledger in the `~/.gstack` copy of this doc). Where this section and the text above disagree, this section wins.
+
+**Layout (D2).** Two new source files: `src/10h_caption_timing_evidence.js` (pure: speech evidence, edge proposals, pause-to-gap mapping, anchor re-spread) and `src/12by_caption_timing_review.js` (Check timing, list, Review doubtful, Fix timing). The 16 kHz helper is extracted *inside* `src/12c_caption_workbench.js`. The anchor gesture lives in `src/12bs_caption_sync.js`, and the commands in `src/12b_caption_store.js`. This replaces the `10h_caption_audio16k` / `10i_caption_timing_evidence` names above.
+
+**Store and undo.**
+- Evidence is written by a new undoable command `set-timing-evidence { evidence, audioKey }` (D3). Undo restores whole-project snapshots (`12b_caption_store.js:189`), so "kept out of the undo history on purpose" (Shared foundation) is withdrawn. Never write through `setProject`.
+- New command `replan-segments { segmentation, pauses? }`: one undo step, used by R3, R4 *and* the existing words-per-caption control, which today wipes undo history through `setProject` (`12c:20`) (D4). Regression contract (D7): same input gives byte-identical segments, plans and `style.segmentation` (golden test at 3 densities); the empty-transcript path is unchanged; the confirm dialog stays; one undo step and history kept.
+- `snap-caption-edges` validates the combined token timeline of the whole batch. `J.proposeCaptionEdges` clamps colliding pairs to the gap midpoint and marks both doubtful (D10).
+- `anchor-token` also refuses when the caption's timing field is locked or a moved word's timing is locked, like `retime-tokens` (`12b:633, 640`). `retime-tokens` stamps `timingSource: 'tap'`, and tap-timed words are re-spread barriers like anchors (X2, under P4).
+- `timingSource` survives split, merge, move-to-track and save/load (those commands never rebuild tokens). It is dropped only by text edits that change the word count (A3).
+
+**Evidence.**
+- Regions are `[start, end, onsetStep, offsetStep]`: energy rise and fall in dB over 30 ms, quantized to 0.5 dB. This is what the clear-boundary test reads (D13).
+- `audioKey = J.mediaContentKey(file, duration)`: the `fingerprintMediaFile` sampling and hash without `lastModified`. The existing fingerprint stays byte-identical, pinned by a test (D6).
+- While `audioKey` mismatches (D12), this replaces the "keep using stored evidence" rule:
+  - Fix timing is disabled.
+  - Check timing shows stored proposals as doubtful only.
+  - The anchor onset snap is off.
+  - The re-break ignores stored pauses.
+  - The warning says "Run Check timing again for this video". Stored evidence is kept until Check timing replaces it.
+
+**Limits and messages.**
+- `media.hasAudio === false`: Check timing and Fix timing are disabled with "This video has no sound to check".
+- Unreadable audio: "Couldn't read this video's sound. Nothing was changed." The helper throws a neutral `AUDIO_UNREADABLE`, and transcription maps it to its own code (D5).
+- `J.TIMING_CHECK_MAX_SECONDS = 600`. Longer videos are refused before decoding with "Check timing works on videos up to 10 minutes" (D8).
+
+**R3 / R4.**
+- The live words-per-caption preview runs segmentation only, debounced 150 ms, drawn as block outlines. Full planning happens on apply (D9).
+- Fix timing leaves caption runs that contain an unmatched pause unchanged and lists them as "check" (D11).
+- The claim "the order is safe either way" is withdrawn. Tests assert that snapped word times survive, and assert the caption boundaries of the actual R3-then-R1 sequence (X8).
+
+**Measurement and gating.**
+- The Assignment uses 3 tuning clips plus 2 held-out clips (one Gemini, one SRT). Thresholds are tuned on the tuning clips, and success is judged only on the held-out ones (D15).
+- R2's criterion becomes: the harness counts the taps needed until every word of a caption is within 120 ms. R2 passes when the median is below the caption's word count, i.e. fewer taps than the existing word sync. Annotate every word of 3 drifting captions. Anchors are unlimited (D14).
+- **Gate:** R3 and R4 start only after R1 meets its criteria on the held-out clips *and* an owner-timed fix of one held-out clip beats today's baseline. Otherwise, stop and revisit this design. R2 may follow R1 either way (D16).
+
+**Follow-ups** are in `TODOS.md`: Gemini per-word confidence (P3), and dropping the density confirm dialog after R3 (P4).
+
 <!-- gstack:office-hours:concerns:start -->
 ## Reviewer Concerns
 
