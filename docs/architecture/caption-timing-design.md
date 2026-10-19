@@ -144,7 +144,7 @@ The existing pipeline covers it. `python build.py` regenerates the 7 editions, a
 
 ## Next Steps
 
-1. Draw the flow as an artifact and settle Open Question 4.
+1. Draw the flow as an artifact and settle Open Question 4. Done 2026-10-19: drawing at https://claude.ai/artifact/13XghSsNqUW1A61aNcrk8h (private to the owner); Open Question 4 is closed by design decision 1. R1 UI code waits for the owner's answers to the drawing's open questions.
 2. Write ADR 0012, and add slices R1–R4 to a plan doc in `docs/architecture/` with status lines, like the rework plan.
 3. R1: the `10h` audio helper, `10i` evidence, proposals, `snap-caption-edges`, the stored evidence, Check timing UI and the benchmark harness. Tests in `dev/caption_timing_refine_test.js` (synthetic signals, both tightening directions, refusals, exact undo).
 4. R2, R3, R4 in order, each a separate commit with tests green.
